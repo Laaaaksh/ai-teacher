@@ -10,8 +10,11 @@
  * LessonSession()` does only the planning call (verified live: ~50s for a
  * 3-concept lesson) and persists the
  * session/plan/concepts immediately; `scriptTaughtLessonSession()` scripts
- * every concept CONCURRENTLY (`Promise.allSettled`, not a sequential loop —
- * the calls are independent) and is meant to be run in the background by
+ * concepts CONCURRENTLY but with a bounded pool, not a sequential loop and
+ * not an unbounded fan-out — the calls are independent, so they overlap,
+ * but only `MAX_CONCURRENT_CONCEPT_SCRIPTS` at a time so a long plan can't
+ * put every concept's pair of large requests on the wire at once. It is
+ * meant to be run in the background by
  * the caller (see app/api/teach/sessions/route.ts), with progress polled
  * via `lesson_sessions.scripting_status`.
  *
@@ -45,6 +48,51 @@ import type { LanguageCode, LearningDepth } from "../types";
 
 /** Every concept's scripted beats reserve this many scene slots, so scene `order` can be precomputed per concept BEFORE dispatching parallel scripting — order must reflect lesson sequence, not promise-resolution order. */
 const BEATS_PER_CONCEPT = 5;
+
+/**
+ * Concept scripting fans out one `scriptConcept()` per concept, and each of
+ * those is itself two parallel model calls — so an unbounded fan-out on a
+ * 12-concept plan (`deriveStructure`'s ceiling) would put 24 large requests
+ * on the wire at once and turn a rate-limited burst into per-concept
+ * failures. This is background work, so a small pool costs wall-clock the
+ * caller never waits on.
+ */
+const MAX_CONCURRENT_CONCEPT_SCRIPTS = 3;
+
+/**
+ * Scene orders `0 .. conceptCount * BEATS_PER_CONCEPT` belong to the scripted
+ * lesson (every concept's beats plus the closing summary), whether or not
+ * background scripting has written them yet. Scenes minted later — adaptation
+ * re-explanations and their follow-up checkpoints — must start above that
+ * span, not above whatever happens to exist right now, or they collide with
+ * a still-unscripted concept's slots and make `order` ambiguous.
+ */
+export function firstAdaptationSceneOrder(conceptCount: number): number {
+  return conceptCount * BEATS_PER_CONCEPT + 1;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let cursor = 0;
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
+}
 
 export interface PlanTaughtSessionInput {
   learnerProfile: LearnerProfileRow;
@@ -130,8 +178,10 @@ export async function scriptTaughtLessonSession(
 
   const concepts = plan.concepts;
 
-  const settled = await Promise.allSettled(
-    concepts.map(async (concept, index) => {
+  const settled = await mapWithConcurrency(
+    concepts,
+    MAX_CONCURRENT_CONCEPT_SCRIPTS,
+    async (concept, index) => {
       const scripted = await scriptConcept({ concept, learnerProfile, language });
       const explanationBeat = scripted.beats.find((b) => b.type === "explanation");
 
@@ -164,7 +214,7 @@ export async function scriptTaughtLessonSession(
       }));
 
       return { question, scenes: createScenes(sceneInputs) };
-    }),
+    },
   );
 
   const scenes: SceneRow[] = [];

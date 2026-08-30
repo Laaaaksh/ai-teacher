@@ -89,7 +89,7 @@ describe("chat()", () => {
     const { chat } = await import("../lib/sarvam/client");
 
     await expect(chat({ messages: [{ role: "user", content: "hi" }] })).rejects.toMatchObject({
-      kind: "invalid-json",
+      kind: "invalid-response-body",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
