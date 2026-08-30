@@ -1,3 +1,4 @@
+import { asDisplayText, asFiniteNumber, escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
 interface Label {
@@ -17,6 +18,40 @@ interface LabelledDiagramContent {
 const WIDTH = 560;
 const HEIGHT = 400;
 
+const SHAPES = new Set(["blob", "rect", "circle", "none"]);
+
+function diagramError(message: string): RenderedVisual {
+  return { html: `<div class="visual-diagram-error">${escapeHtml(message)}</div>`, stepCount: 1, revealMode: "fade" };
+}
+
+/** LLM-authored content reaches here as arbitrary JSON, so every field is narrowed rather than assumed; out-of-range or missing coordinates land in the middle of the frame instead of throwing or drawing off-canvas. */
+function coerceDiagram(value: unknown): LabelledDiagramContent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { title, shape, labels } = value as { title?: unknown; shape?: unknown; labels?: unknown };
+
+  const coerced: Label[] = [];
+  if (Array.isArray(labels)) {
+    for (const entry of labels) {
+      if (!entry || typeof entry !== "object") continue;
+      const { text, x, y } = entry as { text?: unknown; x?: unknown; y?: unknown };
+      const label = asDisplayText(text);
+      if (label === null) continue;
+      coerced.push({ text: label, x: clampPercent(x), y: clampPercent(y) });
+    }
+  }
+
+  return {
+    title: asDisplayText(title) ?? undefined,
+    shape: typeof shape === "string" && SHAPES.has(shape) ? (shape as LabelledDiagramContent["shape"]) : "blob",
+    labels: coerced,
+  };
+}
+
+function clampPercent(value: unknown): number {
+  const n = asFiniteNumber(value);
+  return n === undefined ? 50 : Math.min(100, Math.max(0, n));
+}
+
 /**
  * Content contract for kind "labelled-diagram" (renderer "svg"): JSON
  * matching LabelledDiagramContent. Each label gets a leader line into the
@@ -24,12 +59,15 @@ const HEIGHT = 400;
  * calling it out.
  */
 export function renderLabelledDiagramVisual(content: string, caption?: string): RenderedVisual {
-  let parsed: LabelledDiagramContent;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(content) as LabelledDiagramContent;
+    raw = JSON.parse(content);
   } catch {
-    return { html: `<div class="visual-diagram-error">Diagram data was not valid JSON.</div>`, stepCount: 1, revealMode: "fade" };
+    return diagramError("Diagram data was not valid JSON.");
   }
+
+  const parsed = coerceDiagram(raw);
+  if (!parsed) return diagramError("Diagram data was not in the expected shape.");
 
   const cx = WIDTH / 2;
   const cy = HEIGHT / 2;
@@ -69,8 +107,4 @@ export function renderLabelledDiagramVisual(content: string, caption?: string): 
     stepCount: Math.max(1, parsed.labels.length),
     revealMode: "steps",
   };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

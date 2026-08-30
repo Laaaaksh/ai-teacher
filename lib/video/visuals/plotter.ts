@@ -1,3 +1,4 @@
+import { asDisplayText, asFiniteNumber, escapeHtml } from "../html";
 import { compileExpression } from "./expr";
 import type { RenderedVisual } from "./types";
 
@@ -25,6 +26,45 @@ const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 
 const PALETTE = ["#4f8ff7", "#f2994a", "#6fcf97", "#bb6bd9"];
 
+/** LLM-authored content reaches here as arbitrary JSON, so every field is narrowed to what the plotting maths can actually consume; anything unusable is dropped rather than allowed to produce NaN geometry or throw. */
+function coercePlot(value: unknown): PlotContent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const kind = raw.kind === "line" || raw.kind === "bar" || raw.kind === "scatter" ? raw.kind : undefined;
+
+  return {
+    fn: typeof raw.fn === "string" ? raw.fn : undefined,
+    xMin: asFiniteNumber(raw.xMin),
+    xMax: asFiniteNumber(raw.xMax),
+    samples: asFiniteNumber(raw.samples),
+    series: coerceSeries(raw.series),
+    xLabel: asDisplayText(raw.xLabel) ?? undefined,
+    yLabel: asDisplayText(raw.yLabel) ?? undefined,
+    kind,
+  };
+}
+
+function coerceSeries(value: unknown): SeriesSpec[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const series: SeriesSpec[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const { label, points } = entry as { label?: unknown; points?: unknown };
+    if (!Array.isArray(points)) continue;
+
+    const coerced: [number, number][] = [];
+    for (const point of points) {
+      if (!Array.isArray(point)) continue;
+      const x = asFiniteNumber(point[0]);
+      const y = asFiniteNumber(point[1]);
+      if (x === undefined || y === undefined) continue;
+      coerced.push([x, y]);
+    }
+    series.push({ label: asDisplayText(label) ?? undefined, points: coerced });
+  }
+  return series;
+}
+
 /**
  * Content contract for kind "graph" (renderer "plotter"): JSON matching
  * PlotContent above — either `fn` (a single-variable expression, evaluated
@@ -33,36 +73,40 @@ const PALETTE = ["#4f8ff7", "#f2994a", "#6fcf97", "#bb6bd9"];
  * than throwing, since a malformed spec shouldn't crash the whole render.
  */
 export function renderPlotterVisual(content: string, caption?: string): RenderedVisual {
-  let parsed: PlotContent;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(content) as PlotContent;
+    raw = JSON.parse(content);
   } catch {
     return placeholder("Graph data was not valid JSON.", caption);
   }
 
-  const series: SeriesSpec[] = [];
+  const parsed = coercePlot(raw);
+  if (!parsed) return placeholder("Graph data was not in the expected shape.", caption);
+
+  const collected: SeriesSpec[] = [];
   if (parsed.fn) {
     try {
       const f = compileExpression(parsed.fn);
       const xMin = parsed.xMin ?? -10;
       const xMax = parsed.xMax ?? 10;
-      const samples = Math.max(2, parsed.samples ?? 60);
+      const samples = Math.min(2000, Math.max(2, Math.floor(parsed.samples ?? 60)));
       const points: [number, number][] = [];
       for (let i = 0; i <= samples; i++) {
         const x = xMin + (i / samples) * (xMax - xMin);
         const y = f(x);
         if (Number.isFinite(y)) points.push([x, y]);
       }
-      series.push({ label: parsed.fn, points });
+      collected.push({ label: parsed.fn, points });
     } catch (err) {
       return placeholder(`Could not evaluate function: ${(err as Error).message}`, caption);
     }
   }
-  if (parsed.series) series.push(...parsed.series);
+  if (parsed.series) collected.push(...parsed.series);
 
-  if (series.length === 0 || series.every((s) => s.points.length === 0)) {
-    return placeholder("No plottable data.", caption);
-  }
+  // Empty series are dropped rather than merely counted: a bar chart divides
+  // the plot width by a series' point count.
+  const series = collected.filter((s) => s.points.length > 0);
+  if (series.length === 0) return placeholder("No plottable data.", caption);
 
   const allPoints = series.flatMap((s) => s.points);
   const xs = allPoints.map((p) => p[0]);
@@ -147,8 +191,4 @@ function placeholder(message: string, caption?: string): RenderedVisual {
     stepCount: 1,
     revealMode: "fade",
   };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

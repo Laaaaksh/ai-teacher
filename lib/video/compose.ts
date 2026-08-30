@@ -2,6 +2,7 @@ import type { SceneType } from "../types";
 import { avatarRuntimeScript, renderAvatarSvg } from "./avatar/avatarRuntime";
 import type { TeacherPersona } from "./avatar/personas";
 import type { CaptionCue } from "./captions";
+import { escapeHtml, jsonForScript } from "./html";
 import type { RenderedVisual, RevealMode } from "./visuals";
 
 export const RESOLUTION = { width: 1280, height: 720 } as const;
@@ -78,16 +79,13 @@ const BASE_CSS = `
   .title-card .title-avatar { position: absolute; bottom: 24px; right: 60px; width: 220px; }
 `;
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
 function frameDriverScript(opts: { durationMs: number; captions: CaptionCue[]; revealMode: RevealMode; stepCount: number }): string {
   return `
 (function () {
   var DURATION_MS = ${opts.durationMs};
   var STEP_COUNT = ${opts.stepCount};
-  var CAPTIONS = ${JSON.stringify(opts.captions)};
+  var REVEAL_MODE = ${jsonForScript(opts.revealMode)};
+  var CAPTIONS = ${jsonForScript(opts.captions)};
   var continuousCache = null;
 
   function updatePanelIntro(t) {
@@ -106,6 +104,11 @@ function frameDriverScript(opts: { durationMs: number; captions: CaptionCue[]; r
       var idx = Number(el.getAttribute("data-step"));
       el.style.opacity = idx <= active ? "1" : "0";
     }
+  }
+
+  function showAllSteps() {
+    var steps = document.querySelectorAll(".reveal-step");
+    for (var i = 0; i < steps.length; i++) steps[i].style.opacity = "1";
   }
 
   function updateContinuous(t) {
@@ -137,8 +140,9 @@ function frameDriverScript(opts: { durationMs: number; captions: CaptionCue[]; r
 
   window.__renderFrame = function (t) {
     updatePanelIntro(t);
-    updateSteps(t);
-    updateContinuous(t);
+    if (REVEAL_MODE === "steps") updateSteps(t);
+    else showAllSteps();
+    if (REVEAL_MODE === "continuous") updateContinuous(t);
     updateCaptions(t);
     if (window.__avatarStep) window.__avatarStep(t);
   };

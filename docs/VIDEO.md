@@ -62,10 +62,13 @@ to re-render, produces visually identical output.
 - **Narration** (`lib/video/narrate.ts`): cached by `sha256(text, language,
   speaker, pace)` under `data/video-cache/audio/`. Editing one scene's
   narration only re-synthesizes that scene.
-- **Per-scene video** (`lib/video/render.ts`): cached by `sha256(narration,
-  visual content, persona, fps, resolution, pipeline version)` under
-  `data/video-cache/scenes/`. Re-rendering a lesson after changing one
-  scene's visual or narration only re-captures and re-encodes that scene;
+- **Per-scene video** (`lib/video/render.ts`): cached by `sha256(the fully
+  composed scene page, fps, resolution, pipeline version)` under
+  `data/video-cache/scenes/`. Keying on the composed page rather than on a
+  chosen subset of its inputs means anything that reaches a captured frame —
+  visual, narration, avatar envelope, captions, header text, scene numbering,
+  persona — invalidates the entry automatically. Re-rendering a lesson after
+  changing one scene's visual or narration only re-captures that scene;
   the final video is a fast `ffmpeg -c copy` concat of the (mostly cached)
   scene files. Bump `PIPELINE_VERSION` in `render.ts` if a rendering-logic
   change should invalidate every cached scene.
@@ -101,7 +104,8 @@ across renderers, driven by `compose.ts`'s frame script, not per-renderer
 code:
 - `"steps"` — `.reveal-step[data-step]` elements appear one by one, evenly
   spaced across the scene's narrated duration (math steps, code→output,
-  bullets, table rows, diagram labels).
+  bullets, table rows, diagram labels). Under the other two modes any
+  `.reveal-step` is simply shown from the first frame.
 - `"continuous"` — an SVG path with `data-continuous-reveal` is drawn on
   (via `stroke-dasharray`/`-offset`) over the scene duration (plotted
   function/line graphs).
@@ -168,15 +172,15 @@ by the API.
 
 ## Manually verifying a render
 
-`scripts/demo-lesson.ts` seeds a real mixed-subject lesson plan (a
-step-by-step quadratic-formula derivation, a Python code example with its
-output, a Mermaid history timeline, and a bullet-point recap) directly via
-`lib/db`, then calls `renderLessonVideo()` for real — real Sarvam TTS, real
-Chromium capture, real `ffmpeg` mux:
+`scripts/demo-lesson.ts` seeds a real mixed-subject lesson plan (three scenes:
+a step-by-step quadratic-formula derivation, a Python code example with its
+output, and a Mermaid history timeline) directly via `lib/db`, then calls
+`renderLessonVideo()` for real — real Sarvam TTS, real Chromium capture, real
+`ffmpeg` mux:
 
 ```bash
 npx tsx scripts/demo-lesson.ts
-# -> data/video-cache/output/demo-lesson.mp4
+# -> data/generated/demo-lesson.mp4  (gitignored build output)
 ```
 
 This is not part of `npm test` (it costs real TTS calls and real render

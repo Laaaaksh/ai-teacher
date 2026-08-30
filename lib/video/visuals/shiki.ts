@@ -1,4 +1,5 @@
 import { codeToHtml } from "shiki";
+import { asDisplayText, escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
 const SUPPORTED_LANGS = new Set([
@@ -35,7 +36,8 @@ function parseContent(content: string): ShikiContent {
   try {
     const parsed: unknown = JSON.parse(content);
     if (parsed && typeof parsed === "object" && typeof (parsed as { code?: unknown }).code === "string") {
-      return parsed as ShikiContent;
+      const obj = parsed as { language?: unknown; code: string; output?: unknown };
+      return { language: typeof obj.language === "string" ? obj.language : undefined, code: obj.code, output: asDisplayText(obj.output) ?? undefined };
     }
   } catch {
     // not JSON
@@ -65,8 +67,4 @@ export async function renderShikiVisual(content: string, caption?: string): Prom
     stepCount: parsed.output ? 2 : 1,
     revealMode: "steps",
   };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

@@ -80,6 +80,12 @@ describe("renderPlotterVisual", () => {
     const result = renderPlotterVisual(JSON.stringify({ fn: "x +" }));
     expect(result.html).toContain("Could not evaluate");
   });
+
+  it("falls back to a placeholder for valid JSON of the wrong shape", () => {
+    expect(renderPlotterVisual(JSON.stringify({ series: [{ label: "s" }] })).html).toContain("No plottable data");
+    expect(renderPlotterVisual(JSON.stringify({ series: [{ points: [["a", "b"]] }] })).html).toContain("No plottable data");
+    expect(renderPlotterVisual("null").html).toContain("not in the expected shape");
+  });
 });
 
 describe("renderLabelledDiagramVisual", () => {
@@ -90,6 +96,17 @@ describe("renderLabelledDiagramVisual", () => {
     expect(result.stepCount).toBe(2);
     expect(result.html).toContain("Nucleus");
     expect(result.html).toContain("Membrane");
+  });
+
+  it("falls back to a placeholder for valid JSON of the wrong shape", () => {
+    expect(renderLabelledDiagramVisual("null").html).toContain("not in the expected shape");
+    expect(renderLabelledDiagramVisual(JSON.stringify({ labels: "nope" })).stepCount).toBe(1);
+  });
+
+  it("drops labels with no text and centres coordinates that are missing or out of range", () => {
+    const result = renderLabelledDiagramVisual(JSON.stringify({ labels: [{ text: "Nucleus" }, { x: 10, y: 10 }] }));
+    expect(result.stepCount).toBe(1);
+    expect(result.html).toContain("Nucleus");
   });
 });
 
@@ -108,6 +125,17 @@ describe("renderBulletsVisual / renderComparisonTableVisual / renderImageVisual"
     const result = renderComparisonTableVisual(JSON.stringify({ headers: ["A", "B"], rows: [["1", "2"], ["3", "4"]] }));
     expect(result.stepCount).toBe(2);
     expect(result.html).toContain("<table>");
+  });
+
+  it("bullets: renders non-string JSON entries instead of throwing", () => {
+    const result = renderBulletsVisual("[1,2,3]");
+    expect(result.stepCount).toBe(3);
+    expect(result.html).toContain(">1<");
+  });
+
+  it("comparison table: falls back to bullets when headers/rows are missing", () => {
+    const result = renderComparisonTableVisual(JSON.stringify({ rows: [["a"]] }));
+    expect(result.html).toContain("visual-bullets");
   });
 
   it("image: accepts a data URI and rejects anything else", () => {

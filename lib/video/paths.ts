@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -27,8 +28,9 @@ export function outputDir(): string {
   return dir;
 }
 
-export function framesDirFor(sceneHash: string): string {
-  const dir = path.join(resolveVideoCacheRoot(), "frames", sceneHash);
+/** Scratch directory for one scene's captured PNG frames. Unique per call, not per scene hash: two jobs rendering the same scene concurrently must not interleave frames into — or delete — each other's directory. */
+export function createFramesDir(sceneHash: string): string {
+  const dir = path.join(resolveVideoCacheRoot(), "frames", `${sceneHash}-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

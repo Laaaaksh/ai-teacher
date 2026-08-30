@@ -10,7 +10,7 @@ import { buildCaptionCues } from "./captions";
 import { RESOLUTION, composeScenePage, composeTitleCardPage } from "./compose";
 import { concatVideos, encodeSceneVideo } from "./ffmpeg";
 import { ENVELOPE_FPS, narrate } from "./narrate";
-import { framesDirFor, sceneCacheDir } from "./paths";
+import { createFramesDir, sceneCacheDir } from "./paths";
 import { renderVisual } from "./visuals";
 
 export const DEFAULT_FPS = 24;
@@ -30,14 +30,20 @@ export interface RenderLessonOptions {
   onProgress?: (p: RenderProgress) => void;
 }
 
-function sceneCacheKey(input: { narration: string; visualKey: string; personaId: string; fps: number; durationSeconds: number }): string {
+/**
+ * Keyed on the fully composed page rather than on a subset of its inputs: the
+ * page already contains everything that ends up in a captured frame (visual,
+ * narration-derived avatar envelope, captions, header text, scene numbering,
+ * persona), so a cached scene can never be reused for a frame that would now
+ * render differently — e.g. after inserting a scene ahead of it or renaming
+ * its concept.
+ */
+function sceneCacheKey(input: { html: string; fps: number; durationSeconds: number }): string {
   const hash = createHash("sha256");
   hash.update(
     JSON.stringify({
       v: PIPELINE_VERSION,
-      narration: input.narration,
-      visual: input.visualKey,
-      persona: input.personaId,
+      html: input.html,
       fps: input.fps,
       duration: input.durationSeconds,
       resolution: RESOLUTION,
@@ -57,7 +63,7 @@ async function captureScenePlainToVideo(params: {
   const outputPath = path.join(sceneCacheDir(), `${params.cacheKey}.mp4`);
   if (fs.existsSync(outputPath)) return outputPath;
 
-  const framesDir = framesDirFor(params.cacheKey);
+  const framesDir = createFramesDir(params.cacheKey);
   const page = await params.browser.newPage({ viewport: RESOLUTION });
   try {
     await page.setContent(params.html, { waitUntil: "load" });
@@ -92,10 +98,6 @@ async function buildTitleCard(params: {
   const welcomeText = `Welcome! In this lesson, we will explore ${params.topic}.`;
   const { envelope, durationSeconds, wavPath } = await narrate({ text: welcomeText, language: params.language, speaker: params.persona.speaker });
 
-  const cacheKey = sceneCacheKey({ narration: `title-card:${welcomeText}`, visualKey: "title-card", personaId: params.persona.id, fps: params.fps, durationSeconds });
-  const outputPath = path.join(sceneCacheDir(), `${cacheKey}.mp4`);
-  if (fs.existsSync(outputPath)) return outputPath;
-
   const html = composeTitleCardPage({
     kind: "title-card",
     persona: params.persona,
@@ -108,6 +110,7 @@ async function buildTitleCard(params: {
     language: params.language,
   });
 
+  const cacheKey = sceneCacheKey({ html, fps: params.fps, durationSeconds });
   return captureScenePlainToVideo({ browser: params.browser, html, fps: params.fps, durationSeconds, audioPath: wavPath, cacheKey });
 }
 
@@ -120,9 +123,9 @@ function hashSeed(s: string): number {
 /**
  * Renders a full lesson video: narration -> per-scene visual + avatar
  * composition -> deterministic frame capture -> ffmpeg mux -> concat. Each
- * scene's rendered MP4 is cached by content hash (narration + visual +
- * persona + fps), so re-running after editing one scene only re-renders
- * that scene, not the whole lesson.
+ * scene's rendered MP4 is cached by a hash of its fully composed page (see
+ * sceneCacheKey), so re-running after editing one scene only re-renders that
+ * scene, not the whole lesson.
  */
 export async function renderLessonVideo(lessonPlanId: string, outputPath: string, opts: RenderLessonOptions = {}): Promise<{ outputPath: string; sceneCount: number }> {
   const plan = getLessonPlan(lessonPlanId);
@@ -139,6 +142,11 @@ export async function renderLessonVideo(lessonPlanId: string, outputPath: string
     // --- Narration: one Sarvam TTS call per scene, cached by content hash (narrate.ts) ---
     report({ stage: "narrating", percent: 0, detail: "Synthesizing title card narration" });
     const titleCardVideoPromise = buildTitleCard({ browser, topic: plan.topic, language: plan.language, persona, fps });
+    // The title card renders alongside the scene loop below and is only awaited
+    // after it, so its rejection must be marked handled now — otherwise a TTS or
+    // ffmpeg failure here is an unhandled rejection that takes the process down
+    // instead of failing just this job.
+    titleCardVideoPromise.catch(() => {});
 
     const narrations: { scene: SceneRow; audioPath: string; durationSeconds: number; envelope: number[] }[] = [];
     for (let i = 0; i < scenes.length; i++) {
@@ -159,9 +167,6 @@ export async function renderLessonVideo(lessonPlanId: string, outputPath: string
         const rendered = scene.visual ? await renderVisual(scene.visual, prepPage) : null;
         const concept = plan.concepts.find((c) => c.id === scene.conceptId);
 
-        const visualKey = scene.visual ? `${scene.visual.renderer}:${scene.visual.kind}:${scene.visual.content}` : "none";
-        const cacheKey = sceneCacheKey({ narration: scene.narration, visualKey, personaId: persona.id, fps, durationSeconds });
-
         const html = composeScenePage({
           kind: "scene",
           persona,
@@ -179,6 +184,7 @@ export async function renderLessonVideo(lessonPlanId: string, outputPath: string
           onScreenText: scene.narration,
         });
 
+        const cacheKey = sceneCacheKey({ html, fps, durationSeconds });
         const scenePath = await captureScenePlainToVideo({ browser, html, fps, durationSeconds, audioPath, cacheKey });
         sceneVideoPaths.push(scenePath);
       }

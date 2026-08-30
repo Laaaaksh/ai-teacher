@@ -1,3 +1,4 @@
+import { asDisplayText, escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
 interface TableContent {
@@ -5,8 +6,8 @@ interface TableContent {
   rows: string[][];
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+function textLines(content: string): string[] {
+  return content.split("\n").filter((line) => line.trim().length > 0);
 }
 
 /**
@@ -18,9 +19,10 @@ export function renderBulletsVisual(content: string, caption?: string): Rendered
   let items: string[];
   try {
     const parsed: unknown = JSON.parse(content);
-    items = Array.isArray(parsed) ? (parsed as string[]) : content.split("\n").filter(Boolean);
+    const entries = Array.isArray(parsed) ? parsed.map(asDisplayText).filter((item): item is string => item !== null) : [];
+    items = entries.length > 0 ? entries : textLines(content);
   } catch {
-    items = content.split("\n").filter((line) => line.trim().length > 0);
+    items = textLines(content);
   }
 
   const html = `<div class="visual-bullets">
@@ -33,14 +35,27 @@ export function renderBulletsVisual(content: string, caption?: string): Rendered
   return { html, stepCount: Math.max(1, items.length), revealMode: "steps" };
 }
 
+/** LLM-authored content reaches here as arbitrary JSON, so the {headers, rows} shape is checked rather than assumed; anything else falls back to the bullet renderer. */
+function coerceTable(value: unknown): TableContent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { headers, rows } = value as { headers?: unknown; rows?: unknown };
+  if (!Array.isArray(headers) || !Array.isArray(rows)) return null;
+
+  const cells = rows.filter(Array.isArray).map((row) => (row as unknown[]).map((cell) => asDisplayText(cell) ?? ""));
+  return { headers: headers.map((header) => asDisplayText(header) ?? ""), rows: cells };
+}
+
 /** Content contract for kind "comparison-table" (renderer "html"): `{ headers: string[], rows: string[][] }`. Rows reveal one at a time. */
 export function renderComparisonTableVisual(content: string, caption?: string): RenderedVisual {
-  let parsed: TableContent;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(content) as TableContent;
+    raw = JSON.parse(content);
   } catch {
     return renderBulletsVisual(content, caption);
   }
+
+  const parsed = coerceTable(raw);
+  if (!parsed) return renderBulletsVisual(content, caption);
 
   const html = `<div class="visual-table">
     <table>

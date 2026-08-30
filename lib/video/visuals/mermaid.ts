@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import type { Page } from "playwright";
+import { escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
 const require = createRequire(import.meta.url);
@@ -11,8 +13,6 @@ function mermaidBundle(): string {
   return cachedBundle;
 }
 
-let diagramCounter = 0;
-
 /**
  * Renders Mermaid source to an inline SVG string using a scratch Playwright
  * page (mermaid needs a real DOM — there is no Node-only renderer). The
@@ -20,7 +20,10 @@ let diagramCounter = 0;
  * `page.setContent()` with no local HTTP server or network access.
  */
 export async function renderMermaidSvg(source: string, page: Page): Promise<string> {
-  const id = `mmd-${++diagramCounter}`;
+  // Derived from the source, not a counter: the id ends up inside the emitted
+  // SVG, and render.ts caches a scene by the hash of its composed page — a
+  // per-process counter would make an unchanged scene miss its cache.
+  const id = `mmd-${createHash("sha256").update(source).digest("hex").slice(0, 12)}`;
   await page.setContent(`<!doctype html><html><body><script>${mermaidBundle()}</script></body></html>`, { waitUntil: "load" });
 
   interface MermaidGlobal {
@@ -58,7 +61,7 @@ export async function renderMermaidVisual(source: string, page: Page, caption?: 
     svg = await renderMermaidSvg(source, page);
   } catch (err) {
     return {
-      html: `<div class="visual-diagram-error">Diagram could not be rendered: ${(err as Error).message}</div>`,
+      html: `<div class="visual-diagram-error">Diagram could not be rendered: ${escapeHtml((err as Error).message)}</div>`,
       stepCount: 1,
       revealMode: "fade",
     };
@@ -69,8 +72,4 @@ export async function renderMermaidVisual(source: string, page: Page, caption?: 
     stepCount: 1,
     revealMode: "fade",
   };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }

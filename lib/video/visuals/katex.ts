@@ -2,6 +2,7 @@ import katex from "katex";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { asDisplayText, escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
 const require = createRequire(import.meta.url);
@@ -47,8 +48,9 @@ function parseSteps(content: string): { steps: string[]; final?: string } {
       return { steps: parsed as string[] };
     }
     if (parsed && typeof parsed === "object" && Array.isArray((parsed as { steps?: unknown }).steps)) {
-      const obj = parsed as { steps: string[]; final?: string };
-      return { steps: obj.steps, final: obj.final };
+      const obj = parsed as { steps: unknown[]; final?: unknown };
+      const steps = obj.steps.map(asDisplayText).filter((s): s is string => s !== null);
+      if (steps.length > 0) return { steps, final: asDisplayText(obj.final) ?? undefined };
     }
   } catch {
     // not JSON — fall through to treating the whole string as one LaTeX expression
@@ -77,8 +79,4 @@ export function renderKatexVisual(content: string, caption?: string): RenderedVi
     stepCount: allSteps.length,
     revealMode: "steps",
   };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
