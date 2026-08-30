@@ -93,6 +93,35 @@ async function buildTitleOnlyPptx(): Promise<Buffer> {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
+async function buildGroupedShapePptx(): Promise<Buffer> {
+  const zip = new JSZip();
+  zip.file(
+    "ppt/slides/slide1.xml",
+    `<?xml version="1.0"?>
+    <p:sld xmlns:a="a" xmlns:p="p">
+      <p:cSld>
+        <p:spTree>
+          <p:sp>
+            <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:txBody><a:p><a:r><a:t>Grouped Slide Title</a:t></a:r></a:p></p:txBody>
+          </p:sp>
+          <p:grpSp>
+            <p:sp>
+              <p:txBody><a:p><a:r><a:t>Grouped bullet one</a:t></a:r></a:p></p:txBody>
+            </p:sp>
+            <p:grpSp>
+              <p:sp>
+                <p:txBody><a:p><a:r><a:t>Nested grouped bullet</a:t></a:r></a:p></p:txBody>
+              </p:sp>
+            </p:grpSp>
+          </p:grpSp>
+        </p:spTree>
+      </p:cSld>
+    </p:sld>`,
+  );
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
 describe("parseDocument", () => {
   it("parses a PDF into one section per page with citable page numbers", async () => {
     const pdf = await buildTestPdf();
@@ -126,6 +155,17 @@ describe("parseDocument", () => {
     expect(result.sections[0].title).toBe("Slide One Title");
     expect(result.sections[0].paragraphs.map((p) => p.text)).toEqual(["Bullet A", "Bullet B"]);
     expect(result.sections[1].paragraphs[0].text).toBe("Second slide content");
+  });
+
+  it("extracts text from shapes nested inside grouped shapes", async () => {
+    const pptx = await buildGroupedShapePptx();
+    const result = await parseDocument(pptx, "design-tool-deck.pptx");
+
+    expect(result.sections[0].title).toBe("Grouped Slide Title");
+    expect(result.sections[0].paragraphs.map((p) => p.text)).toEqual([
+      "Grouped bullet one",
+      "Nested grouped bullet",
+    ]);
   });
 
   it("parses plain text into paragraphs split on blank lines", async () => {
@@ -186,6 +226,18 @@ describe("chunkDocument", () => {
     }
     expect(chunks.map((c) => c.text).join(" ")).toBe(paragraph);
   });
+  it("emits a chunk carrying text that only exists inside a grouped shape", async () => {
+    const pptx = await buildGroupedShapePptx();
+    const doc = await parseDocument(pptx, "design-tool-deck.pptx");
+    const chunks = chunkDocument(doc);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toContain("Grouped bullet one");
+    expect(chunks[0].text).toContain("Nested grouped bullet");
+    expect(chunks[0].section).toBe("Grouped Slide Title");
+    expect(chunks[0].page).toBe(1);
+  });
+
   it("emits one chunk for a section whose only text is its title", async () => {
     const pptx = await buildTitleOnlyPptx();
     const doc = await parseDocument(pptx, "outline.pptx");

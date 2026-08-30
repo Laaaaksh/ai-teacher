@@ -14,16 +14,13 @@ interface SlideShapeText {
   text: string;
 }
 
-/** Extracts each shape's paragraph text and whether it sits in a title placeholder. */
-function extractShapes(slideXml: unknown): SlideShapeText[] {
-  const shapes: SlideShapeText[] = [];
-  const sld = (slideXml as Record<string, unknown>)?.["p:sld"] as Record<string, unknown> | undefined;
-  const spTree = (sld?.["p:cSld"] as Record<string, unknown> | undefined)?.["p:spTree"] as
-    | Record<string, unknown>
-    | undefined;
-  if (!spTree) return shapes;
-
-  for (const sp of asArray(spTree["p:sp"] as unknown)) {
+/**
+ * Walks a shape container (`p:spTree`, or a `p:grpSp` nested inside one) and
+ * collects its shapes' text. Design tools export decks whose body text sits in
+ * grouped shapes, so groups are recursed into rather than skipped.
+ */
+function collectShapes(container: Record<string, unknown>, shapes: SlideShapeText[]): void {
+  for (const sp of asArray(container["p:sp"] as unknown)) {
     const shape = sp as Record<string, unknown>;
     const nvPr = (shape["p:nvSpPr"] as Record<string, unknown> | undefined)?.["p:nvPr"] as
       | Record<string, unknown>
@@ -51,6 +48,21 @@ function extractShapes(slideXml: unknown): SlideShapeText[] {
     if (combined) shapes.push({ isTitle, text: combined });
   }
 
+  for (const group of asArray(container["p:grpSp"] as unknown)) {
+    collectShapes(group as Record<string, unknown>, shapes);
+  }
+}
+
+/** Extracts each shape's paragraph text and whether it sits in a title placeholder. */
+function extractShapes(slideXml: unknown): SlideShapeText[] {
+  const shapes: SlideShapeText[] = [];
+  const sld = (slideXml as Record<string, unknown>)?.["p:sld"] as Record<string, unknown> | undefined;
+  const spTree = (sld?.["p:cSld"] as Record<string, unknown> | undefined)?.["p:spTree"] as
+    | Record<string, unknown>
+    | undefined;
+  if (!spTree) return shapes;
+
+  collectShapes(spTree, shapes);
   return shapes;
 }
 

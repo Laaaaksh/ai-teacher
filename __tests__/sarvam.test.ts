@@ -80,6 +80,20 @@ describe("chat()", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not re-POST a 200 whose body is not valid JSON", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => new Response("<html>gateway</html>", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { chat } = await import("../lib/sarvam/client");
+
+    await expect(chat({ messages: [{ role: "user", content: "hi" }] })).rejects.toMatchObject({
+      kind: "invalid-json",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("throws a typed 'config' error when SARVAM_API_KEY is missing", async () => {
     delete process.env.SARVAM_API_KEY;
     const { chat } = await import("../lib/sarvam/client");

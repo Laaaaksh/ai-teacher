@@ -22,7 +22,9 @@ function isRetryableStatus(status: number): boolean {
  * POSTs to a Sarvam endpoint with a timeout and one retry (default) on
  * 429/5xx with exponential backoff. Non-retryable HTTP errors and network
  * failures surface immediately as typed SarvamError instances — never a
- * silent empty result.
+ * silent empty result. A success whose body is not valid JSON is an
+ * `invalid-json` error, not a retry: the server already processed that
+ * request, so re-POSTing it would double-bill it.
  */
 export async function sarvamPost<TResponse = unknown>(opts: RequestOptions): Promise<TResponse> {
   const { path, body, timeoutMs = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES } = opts;
@@ -63,7 +65,16 @@ export async function sarvamPost<TResponse = unknown>(opts: RequestOptions): Pro
         throw httpError;
       }
 
-      return (await response.json()) as TResponse;
+      const rawBody = await response.text();
+      try {
+        return JSON.parse(rawBody) as TResponse;
+      } catch (parseErr) {
+        throw new SarvamError(
+          "invalid-json",
+          `Sarvam request to ${path} returned HTTP ${response.status} but the body was not valid JSON: ${rawBody.slice(0, 500)}`,
+          { cause: parseErr },
+        );
+      }
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof SarvamError) {
