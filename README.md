@@ -36,7 +36,20 @@ No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
 and `npm run build` locally before pushing.
 
-See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
-schema. This repository is built up in slices; this foundation slice provides the
-app scaffold, the Sarvam client, document ingestion, persistence and shared types
-that later slices (lesson planning, the lesson player, video generation) build on.
+## What works today
+
+The web page covers the learner profile and uploading material (or naming a
+topic). The teaching loop itself — plan a lesson, teach it beat by beat, ask
+checkpoint questions, evaluate an answer, re-explain differently when it's
+wrong, then produce a report — runs behind `/api/teach/*` and is drivable end
+to end from there; see "The teaching engine" in `docs/ARCHITECTURE.md` for the
+endpoints. Note that `POST /api/teach/sessions` returns once the lesson is
+*planned* and scripts the lesson in the background, so poll
+`GET /api/teach/sessions/:id` until its `scriptingStatus` settles.
+
+Still to come, as separate slices: the lesson player / video UI, and RAG
+retrieval (embeddings + BM25 fusion — follow-ups are grounded by a local
+lexical scorer until then).
+
+See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
+database schema.

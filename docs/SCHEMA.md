@@ -34,7 +34,12 @@ docs/ARCHITECTURE.md). See `lib/db/accessors/documents.ts`.
 One row per "sitting" with the AI Teacher: a learner, a topic, an optional
 source document, a language/time/depth, and a status
 (`active`/`completed`/`abandoned`). `current_scene_order` is a resume
-pointer for the lesson player. See `lib/db/accessors/lessonSessions.ts`.
+pointer for the lesson player. `scripting_status`
+(`pending`→`in_progress`→`ready`/`partial`/`failed`, migration v3) plus
+`scripting_error` are how a caller follows the background scripting phase,
+since `POST /api/teach/sessions` returns once planning is done rather than
+once the lesson is scripted (see docs/ARCHITECTURE.md). See
+`lib/db/accessors/lessonSessions.ts`.
 
 ### `lesson_plans` / `concepts`
 `lesson_plans` stores the full ordered `Concept[]` for a session as
@@ -78,6 +83,16 @@ existing row (`upsertConceptProgress`) instead of duplicating it. This is
 what "track learning progress" and future-session personalization read
 from. See `lib/db/accessors/conceptProgress.ts`.
 
+### `concept_adaptation_state`
+Per `(lesson_session_id, concept_id)` memory of how adaptation has already
+gone for this concept in this sitting (migration v2): `used_analogies_json`
+is every analogy already spent on it — seeded at scripting time with the
+original explanation's analogy, so even the first re-explanation can't
+repeat itself — plus `attempt_count` and `current_difficulty` so repeated
+misses can escalate (harder question, or drop to a prerequisite). Read and
+written only by `lib/teach/adapt.ts` via
+`lib/db/accessors/adaptationState.ts`.
+
 ### `learning_paths`
 For broad topics: an ordered list of steps (`steps_json`, a
 `LearningPathStep[]`) plus `current_step_index`, so the AI Teacher can say
@@ -99,15 +114,17 @@ question id themselves, since SQLite will accept a stale one silently.
 
 ## What later slices are expected to add
 
+Every table above now has a real writer — document ingestion fills
+`documents`/`document_chunks`, and the teaching engine (`lib/teach/`) fills
+the rest. What is still unclaimed:
+
 - RAG slice: populate `document_chunks.embedding`; no new table needed
   unless it wants a separate vector index.
-- Lesson planner slice: `createLessonSession` + `createLessonPlan` +
-  `createScenes` + `createQuestion`.
-- Lesson player / adaptation slice: `recordStudentAnswer`,
-  `upsertConceptProgress`, `advanceLessonSessionScene`.
-- Assessment slice: `createAssessmentReport`, `completeLessonSession`.
-- Learning-path slice: `createLearningPath`, `updateLearningPathProgress`.
+- Lesson player / video slice: `advanceLessonSessionScene` and
+  `updateLearningPathProgress` exist but have no caller yet — the player is
+  what moves `current_scene_order` and unlocks the next path step as a
+  learner finishes one.
 
-None of this requires a schema change for the features described in
+Neither requires a schema change for the features described in
 docs/ARCHITECTURE.md; if a later slice needs a new column, add a migration
 rather than editing an existing table's `CREATE TABLE` in place.
