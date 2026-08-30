@@ -22,13 +22,25 @@ level, prior knowledge, goal, style, language, minutes available, depth.
 See `lib/db/accessors/learners.ts`.
 
 ### `documents` / `document_chunks`
-`documents` is one row per uploaded file (title, format, page count).
-`document_chunks` holds the retrieval-sized pieces produced by
-`lib/documents/chunk.ts`, each carrying `page` and/or `section` so an answer
-grounded in the document can cite back to an exact location. `embedding` is
-a nullable BLOB, intentionally unpopulated by this slice — the RAG slice
-fills it with local MiniLM vectors (Sarvam has no embeddings endpoint; see
-docs/ARCHITECTURE.md). See `lib/db/accessors/documents.ts`.
+`documents` is one row per uploaded file (title, format, page count,
+`language` — set once by `lib/rag/embed.ts`'s `indexDocument()` from a
+script-detection heuristic, used to translate retrieval queries; see
+`lib/rag/language.ts`). `document_chunks` holds the retrieval-sized pieces
+produced by `lib/rag/chunk.ts` (the upload route's chunker as of the RAG
+slice — see docs/ARCHITECTURE.md for how it differs from
+`lib/documents/chunk.ts`), each carrying `page` and/or `section` so an
+answer grounded in the document can cite back to an exact location.
+`embedding` is a nullable BLOB — `NULL` until `indexDocument()` embeds it
+(local MiniLM vectors, Sarvam has no embeddings endpoint), then a Float32
+vector serialized via `lib/rag/embed.ts`'s `embeddingToBuffer`/
+`bufferToEmbedding`. See `lib/db/accessors/documents.ts`.
+
+### `document_outlines`
+One row per document (added in migration v2): the chapter/concept/
+definition/worked-example structure `lib/rag/outline.ts` extracts, stored
+as `outline_json` (a typed `DocumentOutline`) and generated lazily on first
+`GET /api/documents/[id]/outline` rather than at upload time. See
+`lib/db/accessors/documentOutlines.ts`.
 
 ### `lesson_sessions`
 One row per "sitting" with the AI Teacher: a learner, a topic, an optional
@@ -99,15 +111,19 @@ question id themselves, since SQLite will accept a stale one silently.
 
 ## What later slices are expected to add
 
-- RAG slice: populate `document_chunks.embedding`; no new table needed
-  unless it wants a separate vector index.
+- ~~RAG slice: populate `document_chunks.embedding`~~ — done (migration v2
+  added `document_outlines`, the one new table this slice needed; retrieval
+  itself needed no schema change).
 - Lesson planner slice: `createLessonSession` + `createLessonPlan` +
-  `createScenes` + `createQuestion`.
+  `createScenes` + `createQuestion`. `lib/rag/ground.ts`'s `Citation[]` and
+  `lib/rag/outline.ts`'s `DocumentOutline` (via
+  `getDocumentOutline`/`GET /api/documents/[id]/outline`) are what it reads
+  to ground a `Concept` and to answer "teach me Chapter 4".
 - Lesson player / adaptation slice: `recordStudentAnswer`,
   `upsertConceptProgress`, `advanceLessonSessionScene`.
 - Assessment slice: `createAssessmentReport`, `completeLessonSession`.
 - Learning-path slice: `createLearningPath`, `updateLearningPathProgress`.
 
-None of this requires a schema change for the features described in
-docs/ARCHITECTURE.md; if a later slice needs a new column, add a migration
-rather than editing an existing table's `CREATE TABLE` in place.
+If a later slice needs a new column or table, add a migration rather than
+editing an existing table's `CREATE TABLE` in place (see migration v2 in
+`lib/db/migrations.ts` for the pattern).

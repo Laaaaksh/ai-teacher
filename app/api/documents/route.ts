@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chunkDocument, DocumentParseError, parseDocument } from "@/lib/documents";
+import { DocumentParseError, parseDocument, saveUploadedFile } from "@/lib/documents";
 import { listDocuments, saveDocument } from "@/lib/db";
+import { chunkForRetrieval, indexDocument } from "@/lib/rag";
 
 export const runtime = "nodejs";
 
@@ -45,8 +46,17 @@ export async function POST(req: NextRequest) {
 
   try {
     const parsed = await parseDocument(buffer, file.name);
-    const chunks = chunkDocument(parsed);
+    const chunks = chunkForRetrieval(parsed);
     const { document, chunks: savedChunks } = saveDocument(parsed, chunks);
+    await saveUploadedFile(document.id, document.format, buffer);
+
+    // Fire-and-forget: embedding a 300-page book can take a while, so the
+    // upload responds as soon as chunks are persisted. The client polls
+    // /api/documents/[id]/index for progress (see lib/rag/embed.ts's
+    // getIndexingProgress) rather than the request blocking on it.
+    indexDocument(document.id).catch((err) => {
+      console.error(`Background indexing failed for document ${document.id}:`, err);
+    });
 
     return NextResponse.json({ document, chunkCount: savedChunks.length }, { status: 201 });
   } catch (err) {

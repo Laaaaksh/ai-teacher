@@ -3,6 +3,7 @@ export * from "./types";
 
 export * from "./accessors/learners";
 export * from "./accessors/documents";
+export * from "./accessors/documentOutlines";
 export * from "./accessors/lessonSessions";
 export * from "./accessors/lessonPlans";
 export * from "./accessors/scenes";

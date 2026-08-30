@@ -9,6 +9,7 @@ import type { ParsedDocument } from "./types";
 export { chunkDocument } from "./chunk";
 export { DocumentParseError } from "./errors";
 export type { DocumentErrorKind } from "./errors";
+export { saveUploadedFile, readUploadedFile } from "./storage";
 export * from "./types";
 
 function extensionOf(filename: string): string {
