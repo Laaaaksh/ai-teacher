@@ -167,8 +167,9 @@ model.
 - **`lib/documents/`**: PDF/DOCX/PPTX/TXT/Markdown → a structure-preserving
   `ParsedDocument` (document → sections/pages → paragraphs) and a chunker that
   never splits a chunk across sections, so every chunk keeps one unambiguous
-  citation. PDFs are parsed page-by-page (not one giant string) so a 300-page
-  textbook doesn't spike memory.
+  citation. PDFs are kept as one section per page rather than concatenated into
+  a single string, so real page numbers survive for citations (`pdf-parse`
+  still materialises every page's text at once — see `lib/documents/parsePdf.ts`).
 - **`lib/db/`**: `better-sqlite3` with a migration that runs on boot, one table
   per entity in the full product (not just tonight's slice — see
   `docs/SCHEMA.md`), and typed accessors; no other module writes raw SQL.
@@ -178,9 +179,12 @@ model.
   `LearningPath`).
 - **App shell**: a learner-profile form and a document-upload/topic entry
   point on the home page, wired end-to-end — uploading a real PDF/DOCX/PPTX
-  parses it and persists both the document and its citable chunks.
+  parses it and persists both the document and its citable chunks. Uploads
+  above 25 MB are rejected with a 413 rather than buffered.
 - **`/api/health`**: real reachability of chat/TTS/translate/STT, each from an
-  actual call, not a hardcoded "ok".
+  actual call, not a hardcoded "ok". A live result is cached for 30 s and
+  replayed with a `cachedAgeMs` marker, so polling the endpoint doesn't burn
+  four API calls per request.
 
 Deliberately **not** in this slice: the lesson planner (turning a topic/document
 into a `LessonPlan`), the lesson player/video UI, RAG retrieval (embeddings +
