@@ -89,7 +89,9 @@ is `lib/rag/`, below.
   progress survives a crash), and is fired in the background from the
   upload route; `GET /api/documents/[id]/index` polls
   `getIndexingProgress()` (computed live from `document_chunks`, not
-  in-memory state) for the UI (`app/rag-demo/page.tsx`).
+  in-memory state) for the UI (`app/rag-demo/page.tsx`), and `POST` on the
+  same route re-runs indexing for whatever chunks still lack an embedding —
+  idempotent, for recovering an index interrupted by a restart.
 - **Hybrid retrieval** (`lib/rag/retrieve.ts`): BM25 (`lib/rag/bm25.ts`,
   hand-rolled — no dependency, Unicode-aware tokenizer including combining
   marks so Devanagari/etc. tokenize correctly) fused with cosine similarity
@@ -109,7 +111,9 @@ is `lib/rag/`, below.
   it deciding whether to comply with a system prompt. The gate reads the
   maximum rather than `retrieved[0]`, because the fused RRF order can rank a
   weaker dense match first. Verified live end to end (`npm run eval:rag`;
-  see `evals/`).
+  see `evals/`). Later slices call `ground()` directly; `POST /api/rag/ask`
+  (`{ documentId, question, languageCode }` → the `GroundedAnswer`) exposes
+  the same seam over HTTP so the capability is demoable on its own.
 - **Cross-language retrieval**: all-MiniLM-L6-v2 is English-tuned, so a
   Hindi query embedded directly against English chunks (or the reverse)
   scores near-random, and BM25 has zero token overlap across scripts.
@@ -292,6 +296,13 @@ see "RAG slice — implemented" above and `lib/rag/`.
   cognate in the query does not. A dedicated transliteration step (Latin
   Hindi → Devanagari before the existing translate path) would fix this;
   out of scope for this slice.
+- **`lib/documents/chunk.ts` is dead code, retained on purpose.** The upload
+  route calls `lib/rag/chunk.ts` now, so the original chunker has no
+  production caller — but the two other in-flight slices (`ait-engine`,
+  `ait-video`) branched off the pre-RAG foundation, where the upload route
+  still imports it. Deleting it here would break them when the stack
+  flattens, so it and its tests stay until that flattening lands on `main`,
+  and should be deleted then.
 - **Outline extraction (`lib/rag/outline.ts`) needs the original upload on
   disk** (`lib/documents/storage.ts`, `data/uploads/`, gitignored) — it
   re-parses the source file rather than reconstructing structure from

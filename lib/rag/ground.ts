@@ -16,11 +16,11 @@ import { chunkToCitation, retrieve, type RetrievedChunk } from "./retrieve";
  */
 
 /**
- * Tuned against evals/fixtures — see evals/README.md. all-MiniLM-L6-v2
- * cosine similarity for a genuinely on-topic query against its source
- * chunk in that fixture is consistently >= 0.5; unrelated general-knowledge
- * questions ("capital of France") top out well under 0.25 against the same
- * corpus. 0.32 sits with real margin on both sides.
+ * Empirical, not arbitrary: it sits in the gap between on-topic and
+ * off-topic cosine similarity measured against evals/fixtures. The observed
+ * scores on either side, and how to re-tune this if a new document type
+ * narrows that gap, are in evals/README.md ("Tuning
+ * DENSE_RELEVANCE_THRESHOLD") — `npm run eval:rag` is what checks it.
  */
 const DENSE_RELEVANCE_THRESHOLD = 0.32;
 
