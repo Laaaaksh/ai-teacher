@@ -9,8 +9,8 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
 - **Next.js is pinned to 15.x on purpose** (`^15.5.24`), not the `next@latest`
   (16.x) that `create-next-app` installs by default. The architecture calls for
   Next 15 specifically; don't let a dependency bump silently move to 16 —
-  `npm audit fix --force` will try to, over a dev-toolchain-only `postcss`
-  advisory that is an accepted tradeoff (Known limitations in
+  `npm audit fix --force` will try to, over two dev-toolchain-only `postcss`
+  advisories that are an accepted tradeoff (Known limitations in
   `docs/ARCHITECTURE.md`).
 - `next.config.ts` sets `serverExternalPackages` for `better-sqlite3`,
   `pdf-parse`, `pdfjs-dist`, and `mammoth`. Without this, `pdf-parse` (which
