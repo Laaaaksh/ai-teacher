@@ -36,7 +36,7 @@ Auth header on every call: `api-subscription-key: <key>`.
 
 | Need | Endpoint | Notes |
 |---|---|---|
-| LLM | `POST https://api.sarvam.ai/v1/chat/completions`, model `sarvam-105b` | OpenAI-shaped. **Reasoning model**: fills `reasoning_content` before `content`. A tight `max_tokens` returns `finish_reason: "length"` with `content: null` before real output is written. `lib/sarvam` defaults to a generous `max_tokens` (4096) and throws a typed `truncated` error instead of returning an empty string — verified live against the real API (see `lib/sarvam/client.ts`). |
+| LLM | `POST https://api.sarvam.ai/v1/chat/completions`, model `sarvam-105b` | OpenAI-shaped. **Reasoning model**: fills `reasoning_content` before `content`. A tight `max_tokens` returns `finish_reason: "length"` with `content: null` before real output is written. `lib/sarvam` defaults to a `max_tokens` well clear of that reasoning cost (28,000 — see `DEFAULT_MAX_TOKENS`, measured, not guessed) and throws a typed `truncated` error instead of returning an empty string — verified live against the real API (see `lib/sarvam/client.ts`). |
 | TTS | `POST https://api.sarvam.ai/text-to-speech`, model `bulbul:v3` | Returns `{"audios":["<base64 wav>"]}`; `lib/sarvam` decodes it to a `Buffer`. `speaker` is optional; **only `bulbul:v3` speakers** (aditya, ritu, priya, neha, rahul, kavya, ishita, shreya, varun, tanya, 38 total) — v2 speakers like `anushka` are rejected. |
 | Translate | `POST https://api.sarvam.ai/translate` | `input`, `source_language_code`, `target_language_code` (e.g. `en-IN`, `hi-IN`). |
 | STT | `POST https://api.sarvam.ai/speech-to-text` | multipart; for spoken student answers. |
@@ -210,7 +210,7 @@ prompt), matching the module names to the loop's steps:
 | Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. This does **not** hard-refuse an off-document question: when nothing scores above the relevance floor it says so, then still answers from general knowledge — the anti-hallucination contract is `FollowUpAnswer.grounded` (computed from retrieval results, not the model's own wording), a machine-checkable signal a caller can always trust regardless of how the model phrased the answer. |
 | Continue (assessment) | `assess.ts` | Final quiz drawn from the taught concepts (weighted toward ones missed at checkpoints), then a report. Score/weak-areas/misconceptions-held/concepts-understood are computed **deterministically** from recorded verdicts; the model only phrases `recommendedRevision`/`suggestedNextTopic`, grounded in those computed facts, never inventing a weak area that wasn't measured. |
 | Continue (paths) | `path.ts` | Broad topic ("teach me machine learning") or explicit multi-day request → an ordered `LearningPathStep[]`, first step unlocked, rest locked; `unlockNextStep()` advances it. Each step's own `LessonPlan` is generated lazily by `plan.ts` when the learner actually starts it. |
-| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence, split into a FAST phase and a BACKGROUND phase. `planTaughtLessonSession()` does one planning call (verified live: ~50s for a 3-concept lesson — a single request, not the old design's minutes) and persists `lesson_session`/`lesson_plan`/`concepts` in one transaction. `scriptTaughtLessonSession()` scripts concepts **concurrently but pooled** (a bounded 3-at-a-time fan-out, not a sequential loop and not one request per concept all at once — the calls are independent, but each concept is itself two large calls, so a 12-concept plan would otherwise burst 24 requests into a rate limit; verified live: ~94s to script all 3 concepts, in the background, not blocking the caller) and persists scenes/questions/adaptation-state as each one finishes; a single concept's failure is isolated (recorded in `scripting_error`, that concept just has no scenes) rather than failing the whole lesson. `lesson_sessions.scripting_status` (`pending`→`in_progress`→`ready`\|`partial`\|`failed`) is what a caller polls. This split exists because the old single-call design took 273s in one live-measured run and then failed outright — see the fixes below. |
+| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence, split into a FAST phase and a BACKGROUND phase. `planLessonConcepts()` does one planning call (verified live: ~50s for a 3-concept lesson — a single request, not the old design's minutes) and `persistPlannedSession()` then writes `lesson_session`/`lesson_plan`/`concepts` in one transaction. The route keeps those two halves separate so the deadline in `runLlm()` only ever races the model call: abandoning a slow plan can't commit a session no caller holds the id for (`planTaughtLessonSession()` still composes both for tests and scripts). `scriptTaughtLessonSession()` scripts concepts **concurrently but pooled** (a bounded 3-at-a-time fan-out, not a sequential loop and not one request per concept all at once — the calls are independent, but each concept is itself two large calls, so a 12-concept plan would otherwise burst 24 requests into a rate limit; verified live: ~94s to script all 3 concepts, in the background, not blocking the caller) and persists scenes/questions/adaptation-state as each one finishes; a single concept's failure is isolated (recorded in `scripting_error`, that concept just has no scenes) rather than failing the whole lesson. `lesson_sessions.scripting_status` (`pending`→`in_progress`→`ready`\|`partial`\|`failed`) is what a caller polls. This split exists because the old single-call design took 273s in one live-measured run and then failed outright — see the fixes below. |
 | Shared | `llm.ts` | Every `lib/teach` structured call goes through this thin wrapper around `lib/sarvam`'s `json()` rather than calling it directly — see the token-budget/timeout note below. |
 
 ### API surface (`app/api/teach/`)
@@ -225,7 +225,9 @@ concepts, in parallel) · `GET /sessions/[id]`
 `"ready"`/`"partial"`/`"failed"`) · `POST /sessions/[id]/answer` (evaluate +
 adapt) · `POST /sessions/[id]/ask` (grounded follow-up / language switch) ·
 `POST /sessions/[id]/assess` then `POST /sessions/[id]/assess/submit`
-(generate quiz, then grade it and produce the report) · `POST /paths` (broad
+(generate quiz, then grade it and produce the report, alongside
+`submittedCount`/`scoredCount`/`droppedQuestionIds` so a partially
+ungradable submission is visible rather than silently rescaled) · `POST /paths` (broad
 topic / multi-day). A judge or the lesson-player slice can drive a complete
 session — plan from a topic or an uploaded document, teach it, get asked a
 question, answer wrongly and watch it re-explain differently, finish with a
@@ -265,10 +267,13 @@ not spend time on them. The two real levers, both applied here:
    `network`/`config` errors, where a same-request retry wouldn't help, nor
    `invalid-response-body`, where the request was already processed and
    billed. Because retries multiply attempts, the retry is bounded twice:
-   `llm.ts` gives one structured ask a 150s wall-clock budget (it skips the
-   retry, or shortens its timeout, once the budget is nearly spent), and
-   `runLlm()` caps any request-path route at a 180s deadline, answering 504
-   with `kind: "deadline-exceeded"` instead of holding the caller open.
+   `llm.ts` applies a 150s budget as a brake on *starting* a second attempt
+   (and shortens its timeout to what's left — a brake, not a hard ceiling,
+   since nothing cancels a call already in flight), and `runLlm()` gives any
+   request-path ask a hard 180s deadline, answering 504 with
+   `kind: "deadline-exceeded"` instead of holding the caller open. Because an
+   expired deadline abandons the in-flight work, whatever `runLlm()` races
+   must not write — see the session route's plan/persist split above.
 
 Two smaller fixes, also found live:
 
@@ -336,6 +341,16 @@ Two smaller fixes, also found live:
   leaves a session's `scripting_status` stuck at `'in_progress'` forever with
   no automatic recovery. Acceptable for a single-process hackathon demo;
   would need a real job queue for a multi-instance or serverless deployment.
+- **`POST /api/teach/sessions/[id]/assess` is not idempotent.** Every call
+  generates and persists a fresh quiz question set, with no check for an
+  existing one and no way to fetch a previously issued quiz — so a client
+  retry after a network blip leaves an orphaned question set attached to the
+  session's concepts. Fixing it properly means tagging quiz questions with
+  the session id (a schema change), deliberately not attempted under tonight's
+  time pressure. The practical impact is contained rather than silent:
+  `assess/submit` now reports `submittedCount`/`scoredCount` and
+  `droppedQuestionIds`, so a learner answering from an orphaned batch gets a
+  visible discrepancy instead of a quietly wrong score.
 - **No CI workflow is wired up.** GitHub Actions currently refuses to start
   any job on the account this repo is hosted under ("recent account payments
   have failed or your spending limit needs to be increased") — an account
