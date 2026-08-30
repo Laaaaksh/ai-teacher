@@ -32,8 +32,9 @@ first run.
 - `npm run lint` — ESLint
 - `npm test` — unit tests (vitest)
 
-CI (`.github/workflows/ci.yml`) runs typecheck, lint, test and build in that
-order on Node 20, for every pull request and every push to `main`.
+No CI workflow is wired up yet — GitHub Actions is currently disabled on the
+account this repo is hosted under (billing block); see docs/ARCHITECTURE.md's
+Known limitations. Run the four scripts above locally before pushing.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
 schema. This repository is built up in slices; this foundation slice provides the

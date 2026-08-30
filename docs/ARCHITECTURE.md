@@ -210,3 +210,12 @@ dependent slices this foundation exists to unblock.
 - No embeddings are computed yet (`document_chunks.embedding` is `NULL`) —
   by design, since Sarvam has no embeddings endpoint and this is the RAG
   slice's job.
+- **No CI workflow is wired up.** GitHub Actions currently refuses to start
+  any job on the account this repo is hosted under ("recent account payments
+  have failed or your spending limit needs to be increased") — an account
+  billing block, not a repo or code problem. A red check would block every PR
+  from merging with no way to go green, which is worse than no check at all,
+  so `.github/workflows/ci.yml` was deliberately left out rather than
+  committed and left permanently failing. Run `npm run typecheck`, `npm run
+  lint`, `npm test` and `npm run build` locally before pushing until Actions
+  billing is restored, then add the workflow back.
