@@ -44,7 +44,7 @@ import type {
   ScriptingStatus,
   SceneRow,
 } from "../db/types";
-import type { LanguageCode, LearningDepth } from "../types";
+import type { Concept, LanguageCode, LearningDepth } from "../types";
 
 /** Every concept's scripted beats reserve this many scene slots, so scene `order` can be precomputed per concept BEFORE dispatching parallel scripting — order must reflect lesson sequence, not promise-resolution order. */
 const BEATS_PER_CONCEPT = 5;
@@ -111,8 +111,14 @@ export interface PlannedSession {
   plan: LessonPlanRow;
 }
 
-/** The fast phase: plans the concept sequence and persists session/plan/concepts. Scripting has not started yet — `session.scriptingStatus` is 'pending'. */
-export async function planTaughtLessonSession(input: PlanTaughtSessionInput): Promise<PlannedSession> {
+/**
+ * The planning model call on its own — it writes nothing. A caller that
+ * races this against a deadline (`runLlm` in app/api/teach/llmErrors.ts)
+ * can abandon a slow one and answer the client without a half-created
+ * lesson landing in the database minutes later, so persistence is the
+ * caller's separate, synchronous step via `persistPlannedSession`.
+ */
+export async function planLessonConcepts(input: PlanTaughtSessionInput): Promise<Concept[]> {
   const concepts = await planLesson({
     topic: input.topic,
     learnerProfile: input.learnerProfile,
@@ -129,6 +135,11 @@ export async function planTaughtLessonSession(input: PlanTaughtSessionInput): Pr
     throw new Error("planLesson produced no concepts.");
   }
 
+  return concepts;
+}
+
+/** Persists an already-planned concept sequence as session/plan/concepts in one transaction. Scripting has not started yet — `session.scriptingStatus` is 'pending'. */
+export function persistPlannedSession(input: PlanTaughtSessionInput, concepts: Concept[]): PlannedSession {
   return runInTransaction(() => {
     const session = createLessonSession({
       learnerProfileId: input.learnerProfile.id,
@@ -152,6 +163,11 @@ export async function planTaughtLessonSession(input: PlanTaughtSessionInput): Pr
 
     return { session, plan };
   });
+}
+
+/** The fast phase end to end: plan, then persist. HTTP callers use the two halves separately so a timed-out plan leaves nothing behind; non-HTTP callers (tests, scripts) can use this. */
+export async function planTaughtLessonSession(input: PlanTaughtSessionInput): Promise<PlannedSession> {
+  return persistPlannedSession(input, await planLessonConcepts(input));
 }
 
 export interface ScriptSessionResult {

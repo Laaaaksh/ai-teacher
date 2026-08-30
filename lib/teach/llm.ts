@@ -15,14 +15,17 @@
  *    lib/sarvam/config.ts, verified live: 4/4 succeeded vs 1/4 before);
  *    this retry is a safety net for a genuinely bad response, not the
  *    primary fix.
- * 2. A wall-clock budget for the whole call. Retrying multiplies attempts,
- *    and each attempt carries lib/sarvam's 90s timeout and its own one HTTP
- *    retry, so an unbudgeted retry could keep a single structured ask alive
- *    for many minutes. The retry is skipped once there isn't a useful slice
- *    of the budget left, and takes the remainder as its per-request timeout
- *    rather than a fresh full 90s. Request-path callers get a second, hard
- *    bound from `runLlm()` in app/api/teach/llmErrors.ts; this one also
- *    covers background scripting, which has no HTTP caller to time out.
+ * 2. A wall-clock budget that decides whether the retry is still worth
+ *    starting. Retrying multiplies attempts, and each attempt carries
+ *    lib/sarvam's 90s timeout, its repair round and its own one HTTP retry,
+ *    so an unbudgeted retry could keep a single structured ask alive for
+ *    many minutes. This is a brake, not a hard ceiling: it skips the retry
+ *    once the budget is nearly spent and shortens the retry's per-request
+ *    timeout to what's left, but an attempt already in flight runs to its
+ *    own completion — nothing here cancels it, so a retry whose repair
+ *    round times out twice can still overshoot. Request-path callers get a
+ *    real ceiling from `runLlm()` in app/api/teach/llmErrors.ts; this brake
+ *    also covers background scripting, which has no HTTP caller at all.
  *
  * lib/sarvam's defaults (`DEFAULT_MAX_TOKENS`, `DEFAULT_TIMEOUT_MS`) already
  * cover the teaching engine's calls, so this doesn't override either —
@@ -42,8 +45,8 @@ export interface TeachJsonRequest {
 
 const RETRYABLE_KINDS = new Set(["truncated", "invalid-json", "invalid-schema"]);
 
-/** Total wall clock one structured ask may spend across both outer attempts. */
-const TOTAL_BUDGET_MS = 150_000;
+/** How long a structured ask may already have run before a second full attempt stops being worth starting. */
+const RETRY_BUDGET_MS = 150_000;
 
 /** Below this much remaining budget a retry can't plausibly finish, so it isn't started. */
 const MIN_RETRY_BUDGET_MS = 15_000;
@@ -55,7 +58,7 @@ export async function json<T>(schema: z.ZodType<T>, req: TeachJsonRequest): Prom
   } catch (err) {
     if (!isSarvamError(err) || !RETRYABLE_KINDS.has(err.kind)) throw err;
 
-    const remainingMs = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+    const remainingMs = RETRY_BUDGET_MS - (Date.now() - startedAt);
     if (remainingMs < MIN_RETRY_BUDGET_MS) throw err;
 
     return sarvamJson(schema, {

@@ -11,14 +11,20 @@ import { isSarvamError } from "@/lib/sarvam";
  * Returning a discriminated result instead of throwing keeps the route in
  * control of what has already been persisted when the failure lands.
  *
- * It also puts a hard ceiling on how long a request may sit on model calls.
- * One structured ask can internally become several attempts (lib/teach/llm.ts's
+ * It also bounds how long the caller waits on any ONE such ask. A single
+ * structured ask can internally become several attempts (lib/teach/llm.ts's
  * outer retry x lib/sarvam's repair round x sarvamPost's HTTP retry), each
- * carrying the 90s default timeout, and some routes chain more than one ask —
- * so without a deadline a pathological upstream ties up the caller for many
- * minutes. On expiry the caller gets a 504 immediately; the in-flight work is
- * abandoned, not awaited (it holds no lock and its writes are all-or-nothing
- * per route).
+ * carrying the 90s default timeout, so without a deadline a pathological
+ * upstream ties up the caller for many minutes. The deadline is per call,
+ * not per request: a route that chains asks (answer: evaluate then adapt;
+ * assess/submit: one per answer) can spend a multiple of it, which is
+ * deliberate — each ask is separately useful work, not a stalled retry.
+ *
+ * On expiry the caller gets a 504 immediately and the in-flight work is
+ * abandoned, not awaited — so the raced work must not write. Where planning
+ * is concerned that is why app/api/teach/sessions/route.ts races only the
+ * model call and persists afterwards, rather than racing a function that
+ * commits rows.
  */
 export type LlmOutcome<T> = { ok: true; value: T } | { ok: false; response: NextResponse };
 

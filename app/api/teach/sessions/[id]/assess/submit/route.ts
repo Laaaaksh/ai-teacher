@@ -34,6 +34,12 @@ const SubmitSchema = z.object({
  * then run in one transaction: an upstream failure on the fourth of five
  * answers must not leave the first three recorded and blended into mastery,
  * because the client's retry would then grade them a second time.
+ *
+ * An answer whose questionId isn't part of this session's plan can't be
+ * graded, and the score is a fraction of what WAS graded — so the response
+ * reports `submittedCount`/`scoredCount` and names the ids in
+ * `droppedQuestionIds`, rather than quietly scoring over a smaller set than
+ * the learner answered.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
@@ -52,10 +58,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const learnerProfile = getLearnerProfile(session.learnerProfileId)!;
 
   const graded: Array<{ question: QuestionRow; concept: Concept; evaluation: EvaluationResult }> = [];
+  const droppedQuestionIds: string[] = [];
   for (const { questionId, studentAnswer } of parsed.data.answers) {
     const question = getQuestion(questionId);
     const concept = question ? plan.concepts.find((c) => c.id === question.conceptId) : undefined;
-    if (!question || !concept) continue;
+    if (!question || !concept) {
+      droppedQuestionIds.push(questionId);
+      continue;
+    }
 
     const evaluated = await runLlm("Grading the final quiz", () =>
       evaluateAnswer({ question, concept, studentAnswer, language: session.language }),
@@ -122,5 +132,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     };
   });
 
-  return NextResponse.json({ report, session: completedSession });
+  return NextResponse.json({
+    report,
+    session: completedSession,
+    submittedCount: parsed.data.answers.length,
+    scoredCount: graded.length,
+    droppedQuestionIds,
+  });
 }

@@ -9,7 +9,7 @@ import {
   updateLessonSessionScriptingStatus,
 } from "@/lib/db";
 import { LANGUAGE_CODES } from "@/lib/teach/profile";
-import { planTaughtLessonSession, scriptTaughtLessonSession } from "@/lib/teach/session";
+import { persistPlannedSession, planLessonConcepts, scriptTaughtLessonSession } from "@/lib/teach/session";
 import { runLlm } from "../llmErrors";
 import type { DocumentChunkRow } from "@/lib/db/types";
 
@@ -60,21 +60,25 @@ export async function POST(req: NextRequest) {
     documentChunks = getDocumentChunks(input.sourceDocumentId);
   }
 
-  const planned = await runLlm("Planning the lesson", () =>
-    planTaughtLessonSession({
-      learnerProfile,
-      topic: input.topic,
-      sourceDocumentId: input.sourceDocumentId,
-      documentChunks,
-      sectionHint: input.sectionHint,
-      totalMinutes: input.totalMinutes,
-      depth: input.depth,
-      language: input.language,
-      priorProgress: getConceptProgressForLearner(input.learnerProfileId),
-    }),
-  );
+  const planInput = {
+    learnerProfile,
+    topic: input.topic,
+    sourceDocumentId: input.sourceDocumentId,
+    documentChunks,
+    sectionHint: input.sectionHint,
+    totalMinutes: input.totalMinutes,
+    depth: input.depth,
+    language: input.language,
+    priorProgress: getConceptProgressForLearner(input.learnerProfileId),
+  };
+
+  /* Only the model call is raced against runLlm's deadline. Persisting is a
+   * separate synchronous step so an abandoned slow plan can't commit a
+   * session nobody holds the id for once it finally resolves. */
+  const planned = await runLlm("Planning the lesson", () => planLessonConcepts(planInput));
   if (!planned.ok) return planned.response;
-  const { session, plan } = planned.value;
+
+  const { session, plan } = persistPlannedSession(planInput, planned.value);
 
   // Fire-and-forget: scripting happens after the response is sent. A failure
   // here must still land in a terminal, pollable status rather than leaving
