@@ -260,10 +260,68 @@ model.
   replayed with a `cachedAgeMs` marker, so polling the endpoint doesn't burn
   four API calls per request.
 
-Deliberately **not** in this slice: the lesson planner (turning a topic/document
-into a `LessonPlan`), the lesson player/video UI, and the assessment/adaptation
-logic. RAG retrieval (embeddings + BM25 fusion + grounding) is implemented —
-see "RAG slice — implemented" above and `lib/rag/`.
+Deliberately **not** in this slice: the lesson player/video UI. RAG retrieval
+(embeddings + BM25 fusion + grounding) is implemented — see "RAG slice —
+implemented" above and `lib/rag/`; the lesson planner and the assessment/
+adaptation logic are `lib/teach/` (below).
+
+## The teaching engine (`lib/teach/`)
+
+Implements the teaching loop end to end as explicit state (not one long
+prompt), matching the module names to the loop's steps:
+
+| Step | Module | What it does |
+|---|---|---|
+| Understand | `profile.ts` | Free-text instruction ("teach me Chapter 4 in 20 minutes in Hindi...") + the stored `LearnerProfile` → a structured `TeachingIntent`, via `sarvam-105b` (not regex) so an instruction that doesn't map to a simple pattern still works. Also `detectLanguageSwitch()` for "ab hindi mein samjhao" mid-lesson. |
+| Plan | `plan.ts` | Topic or document chunks → ordered `Concept[]`. `deriveStructure(totalMinutes)` changes lesson *structure* (essential/structured/deep), not just length. Concepts are sequenced by a real topological sort over model-proposed prerequisites (`prerequisiteTitles`) — the model proposes edges, code guarantees the order, breaking any cycle rather than trusting it. Citations are built from the actual retrieved chunk text, never from a model-invented excerpt. |
+| Explain/Demonstrate/Question | `script.ts` | One concept → introduction/explanation/example/checkpoint/transition beats. `chooseVisualKind(subject, beat)` is a plain lookup table (not an LLM call) — the same (subject, beat) pair always yields the same visual kind and the same written rationale, so the decision is inspectable per the spec's "demonstrate how the system decides." Only the visual's *content* (LaTeX/Mermaid/code) is model-generated. The explanation beat's `analogyLabel` is what `adapt.ts` tracks to avoid repeating itself. |
+| Evaluate | `evaluate.ts` | Judges an answer against the concept: `correct`/`partial`/`incorrect` plus a *named* misconception on anything short of correct — the zod schema requires it via `.refine()`, so "just wrong" can't validate. An exact MCQ match to the reference answer short-circuits to `correct` without a model call (deterministic, not a stub — there's nothing to judge). |
+| Adapt | `adapt.ts` | On incorrect/partial: re-explains with a genuinely different analogy (checked against every analogy already spent on this concept this session — `lib/db/accessors/adaptationState.ts`, seeded at scripting time with the original explanation's analogy so even the *first* miss can't repeat it), a new example, a fresh question at an adjusted difficulty. If the model reuses a banned analogy anyway, one repair round is fired before falling through. A second consecutive miss on the same concept drops to its prerequisite instead of a third attempt at the same content. |
+| Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. When nothing scores above the relevance floor, it says so rather than inventing an answer. |
+| Continue (assessment) | `assess.ts` | Final quiz drawn from the taught concepts (weighted toward ones missed at checkpoints), then a report. Score/weak-areas/misconceptions-held/concepts-understood are computed **deterministically** from recorded verdicts; the model only phrases `recommendedRevision`/`suggestedNextTopic`, grounded in those computed facts, never inventing a weak area that wasn't measured. |
+| Continue (paths) | `path.ts` | Broad topic ("teach me machine learning") or explicit multi-day request → an ordered `LearningPathStep[]`, first step unlocked, rest locked; `unlockNextStep()` advances it. Each step's own `LessonPlan` is generated lazily by `plan.ts` when the learner actually starts it. |
+| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence into one call (`createTaughtLessonSession`): plans, scripts every concept, persists `lesson_session`/`lesson_plan`/`concepts`/`scenes`/`questions`, seeds adaptation state. This is the glue `app/api/teach/sessions` calls; kept out of the route so it's independently testable. |
+| Shared | `llm.ts` | Every `lib/teach` structured call goes through this thin wrapper around `lib/sarvam`'s `json()` rather than calling it directly — see the token-budget/timeout note below. |
+
+### API surface (`app/api/teach/`)
+
+`POST /intent` (parse instruction) · `POST /sessions` (plan + script + persist
+a full lesson) · `GET /sessions/[id]` (session + plan + scenes + answers, for
+a player to render/resume) · `POST /sessions/[id]/answer` (evaluate + adapt)
+· `POST /sessions/[id]/ask` (grounded follow-up / language switch) ·
+`POST /sessions/[id]/assess` then `POST /sessions/[id]/assess/submit`
+(generate quiz, then grade it and produce the report) · `POST /paths` (broad
+topic / multi-day). A judge or the lesson-player slice can drive a complete
+session — plan from a topic or an uploaded document, teach it, get asked a
+question, answer wrongly and watch it re-explain differently, finish with a
+report naming real weak areas — through this surface alone.
+
+### Two real-behaviour fixes this slice made to `lib/sarvam`
+
+Both found by running the actual teaching loop against the live API (not
+assumed), and both minimal, additive, backward-compatible changes to the
+foundation client rather than workarounds in `lib/teach`:
+
+1. **`timeoutMs` was unplumbable.** `ChatCompletionRequest`/`JsonRequest` had
+   no way to raise `lib/sarvam`'s 30s default even though `sarvamPost()`
+   already accepted it — a large `maxTokens` response (a full scripted
+   concept: five narration fields, two visuals, a question, in one JSON
+   object) can genuinely take the reasoning model past 30s. Added
+   `timeoutMs?: number` to both request types, passed through in `chat()`.
+   `lib/teach/llm.ts` defaults every teaching-engine call to 60s.
+2. **A JSON-mode response still needs the exact key names spelled out.**
+   `json<T>()`'s `response_format: json_object` makes the model emit valid
+   JSON, but not necessarily matching the caller's zod schema — verified
+   live, a prompt that only *describes* the desired fields in prose got a
+   plausible-but-wrong shape back (`description`/`bucket`/`examples` instead
+   of `summary`/`subject`/`difficulty`/`visualContent`/`visualCaption`).
+   Every `lib/teach` prompt now ends with an explicit `"Respond with ONLY a
+   JSON object of exactly this shape: {...}"` block naming every key.
+3. Language codes like `"en-IN"` alone weren't a reliable instruction either
+   — verified live, the model sometimes wrote Hindi despite an `en-IN`
+   request. `lib/teach/profile.ts`'s `languageInstruction()` names the
+   language in words ("Write in English (language code \"en-IN\").") and
+   every module routes through it instead of interpolating the raw code.
 
 ## Known limitations
 
@@ -320,6 +378,28 @@ see "RAG slice — implemented" above and `lib/rag/`.
   contain the damage. Bounded rather than exact in that case; the *chapter
   grouping* (which page belongs to which chapter) is unaffected either way.
   `evals/fixtures/electricity-basics.pdf` demonstrates this exact case.
+- **`lib/teach/ask.ts`'s grounding is a local lexical (term-overlap) scorer
+  over `document_chunks`, not the RAG slice's embeddings+BM25 fusion.** It's
+  a real anti-hallucination mechanism (it does refuse to ground an answer
+  when nothing scores above the relevance floor), but it's keyword overlap,
+  not semantic search — a question that paraphrases the material without
+  sharing its vocabulary can miss a genuinely relevant chunk. Swap in the RAG
+  slice's retrieval (`lib/rag/ground.ts`) here; the call site
+  (`retrieveRelevantChunks`) is a single, isolated function.
+- **`lib/teach/plan.ts` grounds a lesson plan against a document by feeding
+  the model up to ~16,000 characters of raw chunk text**, not a semantic
+  retrieval pass — reasonable for "Chapter 4" (narrowed by
+  `filterChunksBySectionHint`) on typical chapter lengths, but a very long
+  chapter or an un-sectioned document gets truncated rather than
+  intelligently summarized.
+- **The prerequisite-drop in `adapt.ts` only looks within the current lesson
+  plan's concepts** (`concept.prerequisiteConceptIds`), not across sessions
+  or the broader learning path — a concept whose real prerequisite was taught
+  in an earlier session has nothing to drop to here.
+- **`lib/teach/path.ts` step titles/summaries are not translated into the
+  learner's teaching language** — they're navigational metadata, not taught
+  content, so this was scoped out; each step's actual `LessonPlan` (generated
+  lazily when the learner starts it) is fully multilingual via `plan.ts`.
 - **No CI workflow is wired up.** GitHub Actions currently refuses to start
   any job on the account this repo is hosted under ("recent account payments
   have failed or your spending limit needs to be increased") — an account

@@ -12,3 +12,4 @@ export * from "./accessors/studentAnswers";
 export * from "./accessors/assessmentReports";
 export * from "./accessors/conceptProgress";
 export * from "./accessors/learningPaths";
+export * from "./accessors/adaptationState";
