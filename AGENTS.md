@@ -34,7 +34,7 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   explicit `"Respond with ONLY a JSON object of exactly this shape: {...}"`
   block naming every key, and every `lib/teach` call goes through
   `lib/teach/llm.ts` (not `lib/sarvam` directly) for a raised default
-  `maxTokens`/`timeoutMs` — see `docs/ARCHITECTURE.md`'s "Two real-behaviour
+  `maxTokens`/`timeoutMs` — see `docs/ARCHITECTURE.md`'s "Three real-behaviour
   fixes" for why. A raw language code like `"en-IN"` alone is also not a
   reliable instruction; use `lib/teach/profile.ts`'s `languageInstruction()`.
 

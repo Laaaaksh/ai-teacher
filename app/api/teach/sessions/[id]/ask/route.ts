@@ -9,6 +9,7 @@ import {
   updateLessonSessionLanguage,
 } from "@/lib/db";
 import { answerFollowUpQuestion } from "@/lib/teach/ask";
+import { runLlm } from "../../../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -37,15 +38,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const currentConcept = plan?.concepts.find((c) => c.id === currentScene?.conceptId);
   const documentChunks = session.sourceDocumentId ? getDocumentChunks(session.sourceDocumentId) : undefined;
 
-  const result = await answerFollowUpQuestion({
-    question: parsed.data.question,
-    lessonTopic: session.topic,
-    currentConcept: currentConcept ? { title: currentConcept.title, summary: currentConcept.summary } : undefined,
-    sourceDocumentId: session.sourceDocumentId ?? undefined,
-    documentChunks,
-    language: session.language,
-    learnerProfile,
-  });
+  const answered = await runLlm("Answering the follow-up question", () =>
+    answerFollowUpQuestion({
+      question: parsed.data.question,
+      lessonTopic: session.topic,
+      currentConcept: currentConcept ? { title: currentConcept.title, summary: currentConcept.summary } : undefined,
+      sourceDocumentId: session.sourceDocumentId ?? undefined,
+      documentChunks,
+      language: session.language,
+      learnerProfile,
+    }),
+  );
+  if (!answered.ok) return answered.response;
+  const result = answered.value;
 
   let updatedSession = session;
   if (result.languageSwitchRequested) {

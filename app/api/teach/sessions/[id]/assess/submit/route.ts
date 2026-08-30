@@ -9,10 +9,10 @@ import {
   getLessonSession,
   getQuestion,
   recordStudentAnswer,
-  upsertConceptProgress,
 } from "@/lib/db";
-import { deriveMastery, generateAssessmentReport, type ConceptResult } from "@/lib/teach/assess";
+import { generateAssessmentReport, recordVerdictProgress, type ConceptResult } from "@/lib/teach/assess";
 import { evaluateAnswer } from "@/lib/teach/evaluate";
+import { runLlm } from "../../../../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -43,13 +43,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const learnerProfile = getLearnerProfile(session.learnerProfileId)!;
 
+  /* One read of this learner's progress for the whole submission, then kept
+   * current in memory — the blend has to chain across two answers on the same
+   * concept, and re-reading every concept's progress per answer is a full
+   * scan per question. */
+  const masteryScores = new Map(getConceptProgressForLearner(learnerProfile.id).map((p) => [p.conceptId, p.masteryScore]));
+
   const quizResults: ConceptResult[] = [];
   for (const { questionId, studentAnswer } of parsed.data.answers) {
     const question = getQuestion(questionId);
     const concept = question ? plan.concepts.find((c) => c.id === question.conceptId) : undefined;
     if (!question || !concept) continue;
 
-    const evaluation = await evaluateAnswer({ question, concept, studentAnswer, language: session.language });
+    const evaluated = await runLlm("Grading the final quiz", () =>
+      evaluateAnswer({ question, concept, studentAnswer, language: session.language }),
+    );
+    if (!evaluated.ok) return evaluated.response;
+    const evaluation = evaluated.value;
 
     recordStudentAnswer({
       questionId: question.id,
@@ -61,16 +71,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       difficultyAdjustment: evaluation.difficultyAdjustment,
     });
 
-    const points = { correct: 100, partial: 50, incorrect: 0 }[evaluation.verdict];
-    const existing = getConceptProgressForLearner(learnerProfile.id).find((p) => p.conceptId === concept.id);
-    const masteryScore = existing ? Math.round(existing.masteryScore * 0.5 + points * 0.5) : points;
-    upsertConceptProgress({
+    const progress = recordVerdictProgress({
       learnerProfileId: learnerProfile.id,
       conceptId: concept.id,
       conceptTitle: concept.title,
-      mastery: deriveMastery(masteryScore),
-      masteryScore,
+      verdict: evaluation.verdict,
+      previousScore: masteryScores.get(concept.id),
     });
+    masteryScores.set(concept.id, progress.masteryScore);
 
     quizResults.push({ conceptId: concept.id, conceptTitle: concept.title, verdict: evaluation.verdict, misconception: evaluation.misconception });
   }
@@ -79,16 +87,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "None of the submitted questionIds belong to this session's lesson plan." }, { status: 400 });
   }
 
-  const draftReport = await generateAssessmentReport({
-    lessonSessionId: sessionId,
-    topic: session.topic,
-    concepts: plan.concepts,
-    quizResults,
-    learnerProfile,
-    language: session.language,
-  });
+  const drafted = await runLlm("Generating the assessment report", () =>
+    generateAssessmentReport({
+      lessonSessionId: sessionId,
+      topic: session.topic,
+      concepts: plan.concepts,
+      quizResults,
+      learnerProfile,
+      language: session.language,
+    }),
+  );
+  if (!drafted.ok) return drafted.response;
 
-  const report = createAssessmentReport(draftReport);
+  const report = createAssessmentReport(drafted.value);
   const completedSession = completeLessonSession(sessionId, "completed");
 
   return NextResponse.json({ report, session: completedSession });

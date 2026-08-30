@@ -280,7 +280,7 @@ prompt), matching the module names to the loop's steps:
 | Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. When nothing scores above the relevance floor, it says so rather than inventing an answer. |
 | Continue (assessment) | `assess.ts` | Final quiz drawn from the taught concepts (weighted toward ones missed at checkpoints), then a report. Score/weak-areas/misconceptions-held/concepts-understood are computed **deterministically** from recorded verdicts; the model only phrases `recommendedRevision`/`suggestedNextTopic`, grounded in those computed facts, never inventing a weak area that wasn't measured. |
 | Continue (paths) | `path.ts` | Broad topic ("teach me machine learning") or explicit multi-day request → an ordered `LearningPathStep[]`, first step unlocked, rest locked; `unlockNextStep()` advances it. Each step's own `LessonPlan` is generated lazily by `plan.ts` when the learner actually starts it. |
-| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence into one call (`createTaughtLessonSession`): plans, scripts every concept, persists `lesson_session`/`lesson_plan`/`concepts`/`scenes`/`questions`, seeds adaptation state. This is the glue `app/api/teach/sessions` calls; kept out of the route so it's independently testable. |
+| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence into one call (`createTaughtLessonSession`): plans, scripts every concept, persists `lesson_session`/`lesson_plan`/`concepts`/`scenes`/`questions`, seeds adaptation state. Every model call happens before the first write and the writes run in one transaction, so a scripting call that fails upstream leaves no half-written `active` session behind. This is the glue `app/api/teach/sessions` calls; kept out of the route so it's independently testable. |
 | Shared | `llm.ts` | Every `lib/teach` structured call goes through this thin wrapper around `lib/sarvam`'s `json()` rather than calling it directly — see the token-budget/timeout note below. |
 
 ### API surface (`app/api/teach/`)
@@ -296,11 +296,12 @@ session — plan from a topic or an uploaded document, teach it, get asked a
 question, answer wrongly and watch it re-explain differently, finish with a
 report naming real weak areas — through this surface alone.
 
-### Two real-behaviour fixes this slice made to `lib/sarvam`
+### Three real-behaviour fixes this slice made to the Sarvam call path
 
-Both found by running the actual teaching loop against the live API (not
-assumed), and both minimal, additive, backward-compatible changes to the
-foundation client rather than workarounds in `lib/teach`:
+All three found by running the actual teaching loop against the live API (not
+assumed). The first two are minimal, additive, backward-compatible changes to
+the foundation client rather than workarounds in `lib/teach`; the third is a
+`lib/teach` prompting rule, not a `lib/sarvam` change:
 
 1. **`timeoutMs` was unplumbable.** `ChatCompletionRequest`/`JsonRequest` had
    no way to raise `lib/sarvam`'s 30s default even though `sarvamPost()`

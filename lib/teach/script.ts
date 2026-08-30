@@ -122,6 +122,26 @@ export function chooseVisualKind(subject: Subject, beat: Beat): VisualChoice {
   return rules[beat] ?? rules.default;
 }
 
+const RENDERER_SOURCE_FORMAT: Record<VisualRenderer, string> = {
+  katex: "LaTeX math source",
+  mermaid: "Mermaid diagram syntax",
+  shiki: "source code",
+  html: "plain HTML",
+  svg: "inline SVG markup",
+  plotter: "a plot specification",
+  image: "an image description",
+};
+
+/**
+ * Beats of the same concept can land on different renderers (a programming
+ * explanation is a diagram, its example is code), so every prompt that asks
+ * for visual source has to name the renderer of *that* beat rather than the
+ * concept's overview renderer — otherwise Mermaid text gets handed to shiki.
+ */
+export function renderedAs(renderer: VisualRenderer): string {
+  return RENDERER_SOURCE_FORMAT[renderer];
+}
+
 // ---------------------------------------------------------------------------
 // Scripting one concept into beats
 // ---------------------------------------------------------------------------
@@ -184,6 +204,10 @@ export interface ScriptConceptInput {
 export async function scriptConcept(input: ScriptConceptInput): Promise<ScriptedConcept> {
   const { concept, learnerProfile, language } = input;
 
+  const explanationVisual = chooseVisualKind(concept.subject, "explanation");
+  const exampleVisual = chooseVisualKind(concept.subject, "example");
+  const checkpointVisual = chooseVisualKind(concept.subject, "checkpoint");
+
   const grounding = concept.citations.length
     ? `Ground the explanation in this material excerpt(s) — do not contradict them:\n${concept.citations
         .map((c) => `- (${c.section ?? `page ${c.page ?? "?"}`}) ${c.excerpt}`)
@@ -201,7 +225,9 @@ export async function scriptConcept(input: ScriptConceptInput): Promise<Scripted
           `${languageInstruction(language)} This applies to ALL narration and the checkpoint question. ` +
           "Produce: an introduction line, an explanation with a named analogy distinct from generic phrasing (explanationAnalogyLabel should be a short 3-6 word tag naming the analogy, e.g. 'water pipe analogy for current'), " +
           "a worked example, a transition line into the next concept, and one checkpoint question that tests understanding of THIS concept specifically (not trivia). " +
-          `visualContent fields must be real, renderer-appropriate source for a "${concept.visual.renderer}" renderer (LaTeX for katex, Mermaid syntax for mermaid, source code for shiki, plain text otherwise) illustrating this concept — not a description of a visual.` +
+          `Each visualContent field must be real, renderer-appropriate source (LaTeX for katex, Mermaid syntax for mermaid, source code for shiki, plain HTML/text otherwise) illustrating this concept — not a description of a visual. ` +
+          `explanationVisualContent is rendered by "${explanationVisual.renderer}" (${renderedAs(explanationVisual.renderer)}); ` +
+          `exampleVisualContent is rendered by "${exampleVisual.renderer}" (${renderedAs(exampleVisual.renderer)}). Write each one for its own renderer, even when the two differ.` +
           `\n\nRespond with ONLY a JSON object of exactly this shape (no other keys, no markdown fences):\n` +
           `{"introductionNarration": string, "explanationNarration": string, "explanationAnalogyLabel": string, "explanationVisualContent": string, "explanationVisualCaption": string, ` +
           `"exampleNarration": string, "exampleVisualContent": string, "exampleVisualCaption": string, "transitionNarration": string, ` +
@@ -214,10 +240,6 @@ export async function scriptConcept(input: ScriptConceptInput): Promise<Scripted
     ],
     temperature: 0.6,
   });
-
-  const explanationVisual = chooseVisualKind(concept.subject, "explanation");
-  const exampleVisual = chooseVisualKind(concept.subject, "example");
-  const checkpointVisual = chooseVisualKind(concept.subject, "checkpoint");
 
   const seconds = (share: keyof typeof BEAT_TIME_SHARE) =>
     Math.max(5, Math.round(concept.timeBudgetSeconds * BEAT_TIME_SHARE[share]));

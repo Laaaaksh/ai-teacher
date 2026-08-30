@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createQuestion, getLearnerProfile, getLessonPlanForSession, getLessonSession, getQuestion, getStudentAnswersForSession } from "@/lib/db";
 import { generateFinalQuiz } from "@/lib/teach/assess";
+import { runLlm } from "../../../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -34,12 +35,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     ),
   ];
 
-  const drafts = await generateFinalQuiz({
-    concepts: plan.concepts,
-    learnerProfile,
-    language: session.language,
-    emphasizeConceptTitles: weakConceptTitles,
-  });
+  const generated = await runLlm("Generating the final quiz", () =>
+    generateFinalQuiz({
+      concepts: plan.concepts,
+      learnerProfile,
+      language: session.language,
+      emphasizeConceptTitles: weakConceptTitles,
+    }),
+  );
+  if (!generated.ok) return generated.response;
+  const drafts = generated.value;
 
   const quiz = drafts.map((d) =>
     createQuestion({

@@ -10,17 +10,21 @@
  * prompt: the caller passes every analogy already spent on this concept
  * (lib/db's concept_adaptation_state, seeded with the original scripted
  * explanation's analogyLabel), the model is told never to reuse one, and the
- * result is checked against that list — a repeat is asked for again once
- * before falling back to a deterministic reframing so this can't silently
- * degrade into repeating itself.
+ * result is checked against that list — a repeat is asked for again once,
+ * with the repetition named explicitly, before that second answer is
+ * accepted.
+ *
+ * When the drop to a prerequisite fires, the analogies spent on the
+ * prerequisite itself are what must be banned (that is the concept being
+ * re-explained), so the caller passes both lists and they are unioned here.
  */
 import { z } from "zod";
 import { json } from "./llm";
 import { languageInstruction } from "./profile";
-import { chooseVisualKind } from "./script";
+import { chooseVisualKind, renderedAs } from "./script";
 import type { ScriptedBeat, ScriptedQuestion } from "./script";
 import type { LearnerProfileRow } from "../db/types";
-import type { AnswerEvaluation, Concept, LanguageCode } from "../types";
+import type { AnswerEvaluation, Concept, LanguageCode, VisualRenderer } from "../types";
 
 export interface AdaptationResult {
   /** The concept this adaptation actually re-teaches — usually `concept.id`, or the prerequisite's id when droppedToPrerequisite is true. */
@@ -53,6 +57,8 @@ export interface AdaptAfterIncorrectAnswerInput {
   evaluation: Pick<AnswerEvaluation, "verdict" | "misconception" | "studentAnswer" | "difficultyAdjustment">;
   /** Every analogy already spent on this concept in this session, oldest first — the original scripted explanation's analogyLabel plus any prior adaptation's. */
   usedAnalogies: string[];
+  /** The same list for `prerequisiteConcept`, which becomes the banned list when the drop fires — without it the prerequisite could be re-taught with the exact analogy it was first taught with. */
+  prerequisiteUsedAnalogies?: string[];
   currentDifficulty: 1 | 2 | 3 | 4 | 5;
   learnerProfile: Pick<LearnerProfileRow, "level" | "style" | "priorKnowledge">;
   language: LanguageCode;
@@ -74,18 +80,24 @@ export async function adaptAfterIncorrectAnswer(input: AdaptAfterIncorrectAnswer
     ? `The student's specific misconception: "${input.evaluation.misconception.label}" — ${input.evaluation.misconception.description}. Address THIS directly, don't just re-teach generically.`
     : `The student's answer was ${input.evaluation.verdict}: "${input.evaluation.studentAnswer}".`;
 
+  const usedAnalogies = droppedToPrerequisite
+    ? unique([...(input.prerequisiteUsedAnalogies ?? []), ...input.usedAnalogies])
+    : input.usedAnalogies;
+
+  const explanationVisual = chooseVisualKind(target.subject, "explanation");
+
   const draft = await requestAdaptation({
     concept: target,
     learnerProfile: input.learnerProfile,
     language: input.language,
     misconceptionNote,
-    usedAnalogies: input.usedAnalogies,
+    usedAnalogies,
+    visualRenderer: explanationVisual.renderer,
     droppedToPrerequisite,
     steppedBackFrom: droppedToPrerequisite ? input.concept.title : undefined,
     difficulty: nextDifficulty,
   });
 
-  const explanationVisual = chooseVisualKind(target.subject, "explanation");
   const narration = droppedToPrerequisite
     ? `Let's step back for a moment — before we can nail "${input.concept.title}", let's make sure "${target.title}" is solid. ${draft.reExplanationNarration}`
     : draft.reExplanationNarration;
@@ -122,6 +134,15 @@ function clampDifficulty(n: number): 1 | 2 | 3 | 4 | 5 {
   return Math.max(1, Math.min(5, n)) as 1 | 2 | 3 | 4 | 5;
 }
 
+function unique(values: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const value of values) {
+    const key = value.trim().toLowerCase();
+    if (!seen.has(key)) seen.set(key, value);
+  }
+  return [...seen.values()];
+}
+
 interface AdaptationDraft {
   reExplanationNarration: string;
   analogyLabel: string;
@@ -136,6 +157,7 @@ async function requestAdaptation(opts: {
   language: LanguageCode;
   misconceptionNote: string;
   usedAnalogies: string[];
+  visualRenderer: VisualRenderer;
   droppedToPrerequisite: boolean;
   steppedBackFrom?: string;
   difficulty: number;
@@ -153,7 +175,7 @@ async function requestAdaptation(opts: {
         `analogyLabel must be a short 3-6 word tag naming the NEW analogy used, distinct from every banned one. ` +
         `Preferred style: ${opts.learnerProfile.style || "clear and direct"}. Prior knowledge: ${opts.learnerProfile.priorKnowledge || "none stated"}. ` +
         `${languageInstruction(opts.language)} ` +
-        `visualContent must be real renderer-appropriate source (this concept's visual renderer is "${opts.concept.visual.renderer}") illustrating the concept via the new analogy/example, not a description.` +
+        `visualContent must be real source for the "${opts.visualRenderer}" renderer (${renderedAs(opts.visualRenderer)}) illustrating the concept via the new analogy/example, not a description.` +
         `\n\nRespond with ONLY a JSON object of exactly this shape (no other keys, no markdown fences):\n` +
         `{"reExplanationNarration": string, "analogyLabel": string, "visualContent": string, "visualCaption": string, ` +
         `"followUpQuestion": {"type": one of "mcq"|"short-answer"|"problem-solving"|"application"|"explain-in-own-words", "prompt": string, "options": string[] or null, "referenceAnswer": string}}`,

@@ -88,4 +88,32 @@ describe("scriptConcept", () => {
     const totalBeatSeconds = scripted.beats.reduce((sum, b) => sum + b.estimatedSeconds, 0);
     expect(totalBeatSeconds).toBeLessThanOrEqual(concept.timeBudgetSeconds + 25); // rounding + 5s floors per beat
   });
+
+  it("names each beat's own renderer in the prompt, not the concept overview's", async () => {
+    const fetchMock = stubChatSequence({
+      introductionNarration: "i",
+      explanationNarration: "e",
+      explanationAnalogyLabel: "pipeline analogy",
+      explanationVisualContent: "graph TD; A-->B",
+      explanationVisualCaption: "c",
+      exampleNarration: "x",
+      exampleVisualContent: "const x = 1;",
+      exampleVisualCaption: "c",
+      transitionNarration: "t",
+      checkpointQuestion: { type: "short-answer", prompt: "p", options: null, referenceAnswer: "a", difficulty: 3 },
+    });
+
+    const scripted = await scriptConcept({
+      concept: { ...concept, subject: "programming", visual: { kind: "architecture-diagram", renderer: "mermaid", content: "", rationale: "r" } },
+      learnerProfile: { level: "beginner", goal: "", style: "", priorKnowledge: "" },
+      language: "en-IN",
+    });
+
+    // programming: explanation renders as code (shiki), the concept overview as a diagram (mermaid).
+    const systemPrompt = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content as string;
+    expect(systemPrompt).toContain('explanationVisualContent is rendered by "shiki"');
+    expect(systemPrompt).toContain('exampleVisualContent is rendered by "shiki"');
+    expect(systemPrompt).not.toContain('renderer is "mermaid"');
+    expect(scripted.beats.find((b) => b.type === "example")?.visual?.renderer).toBe("shiki");
+  });
 });

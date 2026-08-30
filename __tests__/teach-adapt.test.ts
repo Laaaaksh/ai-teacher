@@ -144,4 +144,30 @@ describe("adaptAfterIncorrectAnswer", () => {
     expect(result.reExplanationScene.narration).toContain("Ohm's Law"); // the deterministic "step back" framing names what we're stepping back from
     expect(result.nextDifficulty).toBeLessThanOrEqual(2);
   });
+
+  it("bans the PREREQUISITE's own spent analogies when it drops, not just the missed concept's", async () => {
+    const fetchMock = stubChatSequence({
+      reExplanationNarration: "Let's rebuild the basics of current and voltage.",
+      analogyLabel: "battery-as-hill analogy",
+      visualContent: "x",
+      visualCaption: "x",
+      followUpQuestion: { type: "mcq", prompt: "What is current?", options: null, referenceAnswer: "Flow of charge" },
+    });
+
+    await adaptAfterIncorrectAnswer({
+      concept: CONCEPT,
+      evaluation: EVALUATION,
+      usedAnalogies: ["crowd in a corridor analogy"],
+      prerequisiteUsedAnalogies: ["water pipe analogy for current"],
+      currentDifficulty: 2,
+      learnerProfile: LEARNER,
+      language: "en-IN",
+      attemptNumber: 2,
+      prerequisiteConcept: PREREQUISITE,
+    });
+
+    const systemPrompt = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content as string;
+    expect(systemPrompt).toContain("water pipe analogy for current");
+    expect(systemPrompt).toContain("crowd in a corridor analogy");
+  });
 });
