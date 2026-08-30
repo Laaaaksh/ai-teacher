@@ -1,10 +1,23 @@
 /**
- * Orchestrates Plan -> Explain/Demonstrate/Question -> persistence into one
- * call: plans the concept sequence, scripts each concept into scenes plus a
- * checkpoint question, and writes all of it (lesson_session, lesson_plan,
- * concepts, scenes, questions, seeded adaptation state) through lib/db's
- * accessors. This is the glue app/api/teach/sessions/route.ts calls; the
- * HTTP-shaped concerns (404s, validation) stay in the route.
+ * Orchestrates Plan -> Explain/Demonstrate/Question -> persistence, split
+ * into a FAST phase and a BACKGROUND phase so a caller isn't blocked on the
+ * whole lesson being scripted.
+ *
+ * Verified live: scripting was previously one sequential LLM call per
+ * concept plus planning plus a summary — for a multi-concept lesson this
+ * took minutes in a single HTTP request and, before the token-budget fix in
+ * lib/sarvam/config.ts, could fail outright partway through. `planTaught
+ * LessonSession()` does only the planning call (verified live: ~50s for a
+ * 3-concept lesson) and persists the
+ * session/plan/concepts immediately; `scriptTaughtLessonSession()` scripts
+ * every concept CONCURRENTLY (`Promise.allSettled`, not a sequential loop —
+ * the calls are independent) and is meant to be run in the background by
+ * the caller (see app/api/teach/sessions/route.ts), with progress polled
+ * via `lesson_sessions.scripting_status`.
+ *
+ * A single concept's scripting failure no longer fails the whole lesson:
+ * `scriptTaughtLessonSession` isolates failures per concept and marks the
+ * session 'partial' rather than losing everything already scripted.
  */
 import {
   createLessonPlan,
@@ -13,15 +26,27 @@ import {
   createScenes,
   runInTransaction,
   seedAdaptationState,
+  updateLessonSessionScriptingStatus,
 } from "../db";
 import { planLesson } from "./plan";
 import { scriptConcept, scriptLessonSummary } from "./script";
-import type { ScriptedConcept } from "./script";
 import type { CreateSceneInput } from "../db/accessors/scenes";
-import type { ConceptProgressRow, DocumentChunkRow, LearnerProfileRow, LessonPlanRow, LessonSessionRow, QuestionRow, SceneRow } from "../db/types";
+import type {
+  ConceptProgressRow,
+  DocumentChunkRow,
+  LearnerProfileRow,
+  LessonPlanRow,
+  LessonSessionRow,
+  QuestionRow,
+  ScriptingStatus,
+  SceneRow,
+} from "../db/types";
 import type { LanguageCode, LearningDepth } from "../types";
 
-export interface CreateTaughtSessionInput {
+/** Every concept's scripted beats reserve this many scene slots, so scene `order` can be precomputed per concept BEFORE dispatching parallel scripting — order must reflect lesson sequence, not promise-resolution order. */
+const BEATS_PER_CONCEPT = 5;
+
+export interface PlanTaughtSessionInput {
   learnerProfile: LearnerProfileRow;
   topic: string;
   sourceDocumentId?: string;
@@ -33,14 +58,13 @@ export interface CreateTaughtSessionInput {
   priorProgress?: ConceptProgressRow[];
 }
 
-export interface TaughtSession {
+export interface PlannedSession {
   session: LessonSessionRow;
   plan: LessonPlanRow;
-  scenes: SceneRow[];
-  questions: QuestionRow[];
 }
 
-export async function createTaughtLessonSession(input: CreateTaughtSessionInput): Promise<TaughtSession> {
+/** The fast phase: plans the concept sequence and persists session/plan/concepts. Scripting has not started yet — `session.scriptingStatus` is 'pending'. */
+export async function planTaughtLessonSession(input: PlanTaughtSessionInput): Promise<PlannedSession> {
   const concepts = await planLesson({
     topic: input.topic,
     learnerProfile: input.learnerProfile,
@@ -56,22 +80,6 @@ export async function createTaughtLessonSession(input: CreateTaughtSessionInput)
   if (concepts.length === 0) {
     throw new Error("planLesson produced no concepts.");
   }
-
-  /* Every LLM call happens before anything is written: a concept whose
-   * scripting call times out must not leave a `status = 'active'` session
-   * behind whose scene list is silently truncated — from the outside that is
-   * indistinguishable from a complete lesson. */
-  const scripted: ScriptedConcept[] = [];
-  for (const concept of concepts) {
-    scripted.push(await scriptConcept({ concept, learnerProfile: input.learnerProfile, language: input.language }));
-  }
-
-  const summaryBeat = await scriptLessonSummary({
-    topic: input.topic,
-    concepts,
-    learnerProfile: input.learnerProfile,
-    language: input.language,
-  });
 
   return runInTransaction(() => {
     const session = createLessonSession({
@@ -94,58 +102,117 @@ export async function createTaughtLessonSession(input: CreateTaughtSessionInput)
       concepts,
     });
 
-    const scenes: SceneRow[] = [];
-    const questions: QuestionRow[] = [];
-    let order = 0;
+    return { session, plan };
+  });
+}
 
-    concepts.forEach((concept, index) => {
-      const conceptScript = scripted[index];
-      const explanationBeat = conceptScript.beats.find((b) => b.type === "explanation");
+export interface ScriptSessionResult {
+  scenes: SceneRow[];
+  questions: QuestionRow[];
+  failedConceptTitles: string[];
+  status: ScriptingStatus;
+}
+
+/**
+ * The background phase: scripts every concept concurrently and persists
+ * scenes/questions/adaptation-state as each one finishes. Intended to be
+ * called without awaiting it in the HTTP response path (fire-and-forget) —
+ * see app/api/teach/sessions/route.ts. Safe to await directly too (tests,
+ * scripts, or a caller that genuinely wants to block on the whole lesson).
+ */
+export async function scriptTaughtLessonSession(
+  session: LessonSessionRow,
+  plan: LessonPlanRow,
+  learnerProfile: LearnerProfileRow,
+  language: LanguageCode,
+): Promise<ScriptSessionResult> {
+  updateLessonSessionScriptingStatus(session.id, "in_progress");
+
+  const concepts = plan.concepts;
+
+  const settled = await Promise.allSettled(
+    concepts.map(async (concept, index) => {
+      const scripted = await scriptConcept({ concept, learnerProfile, language });
+      const explanationBeat = scripted.beats.find((b) => b.type === "explanation");
 
       seedAdaptationState({
         lessonSessionId: session.id,
         conceptId: concept.id,
         initialAnalogy: explanationBeat?.analogyLabel,
-        initialDifficulty: conceptScript.question.difficulty,
+        initialDifficulty: scripted.question.difficulty,
       });
 
       const question = createQuestion({
         conceptId: concept.id,
-        type: conceptScript.question.type,
-        prompt: conceptScript.question.prompt,
-        options: conceptScript.question.options,
-        referenceAnswer: conceptScript.question.referenceAnswer,
-        difficulty: conceptScript.question.difficulty,
+        type: scripted.question.type,
+        prompt: scripted.question.prompt,
+        options: scripted.question.options,
+        referenceAnswer: scripted.question.referenceAnswer,
+        difficulty: scripted.question.difficulty,
       });
-      questions.push(question);
 
-      const sceneInputs: CreateSceneInput[] = conceptScript.beats.map((beat) => ({
+      const orderBase = index * BEATS_PER_CONCEPT;
+      const sceneInputs: CreateSceneInput[] = scripted.beats.map((beat, beatIndex) => ({
         lessonPlanId: plan.id,
         conceptId: concept.id,
         type: beat.type,
-        order: order++,
+        order: orderBase + beatIndex,
         narration: beat.narration,
         visual: beat.visual,
         questionId: beat.type === "checkpoint" ? question.id : undefined,
         estimatedSeconds: beat.estimatedSeconds,
       }));
-      scenes.push(...createScenes(sceneInputs));
+
+      return { question, scenes: createScenes(sceneInputs) };
+    }),
+  );
+
+  const scenes: SceneRow[] = [];
+  const questions: QuestionRow[] = [];
+  const failedConceptTitles: string[] = [];
+
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      scenes.push(...result.value.scenes);
+      questions.push(result.value.question);
+    } else {
+      failedConceptTitles.push(concepts[index].title);
+      console.error(`scriptTaughtLessonSession: failed to script concept "${concepts[index].title}":`, result.reason);
+    }
+  });
+
+  if (questions.length > 0) {
+    const successfulConcepts = concepts.filter((c) => !failedConceptTitles.includes(c.title));
+    const summaryBeat = await scriptLessonSummary({
+      topic: plan.topic,
+      concepts: successfulConcepts,
+      learnerProfile,
+      language,
+    }).catch((err) => {
+      console.error("scriptTaughtLessonSession: failed to script the lesson summary:", err);
+      return null;
     });
 
-    scenes.push(
-      ...createScenes([
-        {
-          lessonPlanId: plan.id,
-          conceptId: concepts[concepts.length - 1].id,
-          type: "summary",
-          order: order++,
-          narration: summaryBeat.narration,
-          visual: summaryBeat.visual,
-          estimatedSeconds: summaryBeat.estimatedSeconds,
-        },
-      ]),
-    );
+    if (summaryBeat) {
+      scenes.push(
+        ...createScenes([
+          {
+            lessonPlanId: plan.id,
+            conceptId: successfulConcepts[successfulConcepts.length - 1].id,
+            type: "summary",
+            order: concepts.length * BEATS_PER_CONCEPT,
+            narration: summaryBeat.narration,
+            visual: summaryBeat.visual,
+            estimatedSeconds: summaryBeat.estimatedSeconds,
+          },
+        ]),
+      );
+    }
+  }
 
-    return { session, plan, scenes, questions };
-  });
+  const status: ScriptingStatus = failedConceptTitles.length === 0 ? "ready" : questions.length > 0 ? "partial" : "failed";
+  const error = failedConceptTitles.length > 0 ? `Failed to script: ${failedConceptTitles.join(", ")}` : undefined;
+  updateLessonSessionScriptingStatus(session.id, status, error);
+
+  return { scenes, questions, failedConceptTitles, status };
 }

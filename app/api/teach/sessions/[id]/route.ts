@@ -3,7 +3,12 @@ import { getAdaptationStatesForSession, getLessonPlanForSession, getLessonSessio
 
 export const runtime = "nodejs";
 
-/** Everything the lesson player needs to render/resume this session: the session row, its plan, ordered scenes, prior answers and adaptation state. */
+/**
+ * Everything the lesson player needs to render/resume this session: the
+ * session row (including `scriptingStatus`, the field to poll after
+ * POST /api/teach/sessions returns), its plan, whatever scenes have been
+ * scripted so far, prior answers and adaptation state.
+ */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -14,11 +19,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const plan = getLessonPlanForSession(id);
   const scenes = plan ? getScenesForLessonPlan(plan.id) : [];
+  const scriptedConceptCount = new Set(scenes.map((s) => s.conceptId)).size;
 
   return NextResponse.json({
     session,
     plan,
     scenes,
+    scriptingProgress: { scriptedConcepts: scriptedConceptCount, totalConcepts: plan?.concepts.length ?? 0 },
     answers: getStudentAnswersForSession(id),
     adaptationState: getAdaptationStatesForSession(id),
   });

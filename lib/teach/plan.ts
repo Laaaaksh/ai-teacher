@@ -38,15 +38,27 @@ export interface LessonStructure {
   includePracticeConcept: boolean;
 }
 
-export function deriveStructure(totalMinutes: number): LessonStructure {
-  if (totalMinutes <= 7) {
-    return { bucket: "essential", targetConceptCount: 1, includePracticeConcept: false };
-  }
-  if (totalMinutes <= 25) {
-    return { bucket: "structured", targetConceptCount: clamp(Math.round(totalMinutes / 6), 2, 5), includePracticeConcept: false };
-  }
-  return { bucket: "deep", targetConceptCount: clamp(Math.round(totalMinutes / 9), 4, 10), includePracticeConcept: true };
+/** overview asks for fewer, broader concepts; deep asks for more, each with room for derivation/technical detail — independent of how that interacts with the time-derived bucket above. */
+const DEPTH_CONCEPT_MULTIPLIER: Record<LearningDepth, number> = { overview: 0.7, standard: 1, deep: 1.3 };
+
+export function deriveStructure(totalMinutes: number, depth: LearningDepth): LessonStructure {
+  const base: LessonStructure = (() => {
+    if (totalMinutes <= 7) return { bucket: "essential", targetConceptCount: 1, includePracticeConcept: false };
+    if (totalMinutes <= 25) return { bucket: "structured", targetConceptCount: clamp(Math.round(totalMinutes / 6), 2, 5), includePracticeConcept: false };
+    return { bucket: "deep", targetConceptCount: clamp(Math.round(totalMinutes / 9), 4, 10), includePracticeConcept: true };
+  })();
+
+  return {
+    ...base,
+    targetConceptCount: clamp(Math.round(base.targetConceptCount * DEPTH_CONCEPT_MULTIPLIER[depth]), 1, 12),
+  };
 }
+
+const DEPTH_GUIDANCE: Record<LearningDepth, string> = {
+  overview: "Keep each concept's summary and example brief and high-level; skip derivations, proofs, and implementation detail.",
+  standard: "",
+  deep: "Go deep on each concept: include the underlying derivation or mechanism, precise technical terminology, and implementation-level detail where relevant, per an advanced learner's needs.",
+};
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -115,7 +127,7 @@ export interface PlanLessonInput {
 }
 
 export async function planLesson(input: PlanLessonInput): Promise<Concept[]> {
-  const structure = deriveStructure(input.totalMinutes);
+  const structure = deriveStructure(input.totalMinutes, input.depth);
 
   const groundingChunks = input.sourceChunks
     ? selectChunksForPlanning(filterChunksBySectionHint(input.sourceChunks, input.sectionHint))
@@ -136,6 +148,7 @@ export async function planLesson(input: PlanLessonInput): Promise<Concept[]> {
           (structure.includePracticeConcept
             ? "Because this is a deep, longer lesson, make the LAST concept an explicit practice/consolidation concept that ties the earlier ones together. "
             : "") +
+          `${DEPTH_GUIDANCE[input.depth] ? ` ${DEPTH_GUIDANCE[input.depth]}` : ""}` +
           (grounded
             ? "Ground every concept in the numbered source excerpts below — set citedChunkIndices to the excerpt numbers it draws from. Do not invent content the excerpts don't support."
             : "No material was uploaded; teach this topic from general knowledge and leave citedChunkIndices null.") +

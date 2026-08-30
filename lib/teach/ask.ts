@@ -8,10 +8,16 @@
  * Grounding uses a small local lexical (term-overlap) scorer over the
  * document's chunks rather than the RAG slice's embeddings, which don't
  * exist on this branch (no Sarvam embeddings endpoint; local MiniLM vectors
- * are that slice's job — see docs/ARCHITECTURE.md). When nothing scores
- * above the relevance floor, this says so rather than inventing an answer —
- * the anti-hallucination behavior the spec asks to be demonstrable, not just
- * asserted.
+ * are that slice's job — see docs/ARCHITECTURE.md). This does NOT hard-refuse
+ * off-document questions — when nothing scores above the relevance floor it
+ * says so, then still answers from general knowledge (a real teacher asked
+ * something outside the textbook says "that's not in your book, but here's
+ * the answer" rather than refusing outright; the spec asks to minimize
+ * *unsupported* information, not to refuse everything off-document). The
+ * anti-hallucination contract is `FollowUpAnswer.grounded` — a
+ * machine-checkable boolean, not the model's own prose — so a caller can
+ * always tell a grounded answer from a general-knowledge one regardless of
+ * how the model chose to phrase it.
  */
 import { json } from "./llm";
 import { LANGUAGE_NAMES, detectLanguageSwitch, languageInstruction } from "./profile";
@@ -64,7 +70,13 @@ export interface AnswerFollowUpInput {
 
 export interface FollowUpAnswer {
   answer: string;
-  /** True only when the answer was actually grounded in retrieved source excerpts. */
+  /**
+   * True only when the answer was actually grounded in retrieved source
+   * excerpts (see `citations`). This — not the wording of `answer` — is the
+   * authoritative, machine-checkable signal a UI must render the "not from
+   * your material" disclaimer from: computed from retrieval results in code,
+   * never from the model's own claim about itself.
+   */
   grounded: boolean;
   citations: Citation[];
   /** Set when the message was actually a mid-lesson language-switch request; `answer` is then just the acknowledgement, not a QA response. */

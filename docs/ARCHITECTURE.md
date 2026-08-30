@@ -273,22 +273,27 @@ prompt), matching the module names to the loop's steps:
 | Step | Module | What it does |
 |---|---|---|
 | Understand | `profile.ts` | Free-text instruction ("teach me Chapter 4 in 20 minutes in Hindi...") + the stored `LearnerProfile` → a structured `TeachingIntent`, via `sarvam-105b` (not regex) so an instruction that doesn't map to a simple pattern still works. Also `detectLanguageSwitch()` for "ab hindi mein samjhao" mid-lesson. |
-| Plan | `plan.ts` | Topic or document chunks → ordered `Concept[]`. `deriveStructure(totalMinutes)` changes lesson *structure* (essential/structured/deep), not just length. Concepts are sequenced by a real topological sort over model-proposed prerequisites (`prerequisiteTitles`) — the model proposes edges, code guarantees the order, breaking any cycle rather than trusting it. Citations are built from the actual retrieved chunk text, never from a model-invented excerpt. |
-| Explain/Demonstrate/Question | `script.ts` | One concept → introduction/explanation/example/checkpoint/transition beats. `chooseVisualKind(subject, beat)` is a plain lookup table (not an LLM call) — the same (subject, beat) pair always yields the same visual kind and the same written rationale, so the decision is inspectable per the spec's "demonstrate how the system decides." Only the visual's *content* (LaTeX/Mermaid/code) is model-generated. The explanation beat's `analogyLabel` is what `adapt.ts` tracks to avoid repeating itself. |
+| Plan | `plan.ts` | Topic or document chunks → ordered `Concept[]`. `deriveStructure(totalMinutes, depth)` changes lesson *structure* on two independent axes: duration (essential/structured/deep bucket, `includePracticeConcept`) and the learner's requested `depth` (a 0.7x/1x/1.3x concept-count multiplier plus prompt guidance — `overview` stays high-level and skips derivations, `deep` asks for the underlying mechanism, precise terminology and implementation detail). Concepts are sequenced by a real topological sort over model-proposed prerequisites (`prerequisiteTitles`) — the model proposes edges, code guarantees the order, breaking any cycle rather than trusting it. Citations are built from the actual retrieved chunk text, never from a model-invented excerpt. |
+| Explain/Demonstrate/Question | `script.ts` | One concept → introduction/explanation/example/checkpoint/transition beats, from two INDEPENDENT LLM calls fired via `Promise.all` (introduction+explanation; example+checkpoint+transition) rather than one — no added wall-clock time, and each call's smaller schema reasons less and is less likely to truncate (see the token-budget fix below). `chooseVisualKind(subject, beat)` is a plain lookup table (not an LLM call) — the same (subject, beat) pair always yields the same visual kind and the same written rationale, so the decision is inspectable per the spec's "demonstrate how the system decides." Only the visual's *content* (LaTeX/Mermaid/code) is model-generated. The checkpoint beat gets its OWN visual content, explicitly instructed not to contain the worked answer — it used to reuse the explanation's full derivation, which could hand the learner the answer to the question testing it. The explanation beat's `analogyLabel` is what `adapt.ts` tracks to avoid repeating itself. |
 | Evaluate | `evaluate.ts` | Judges an answer against the concept: `correct`/`partial`/`incorrect` plus a *named* misconception on anything short of correct — the zod schema requires it via `.refine()`, so "just wrong" can't validate. An exact MCQ match to the reference answer short-circuits to `correct` without a model call (deterministic, not a stub — there's nothing to judge). |
 | Adapt | `adapt.ts` | On incorrect/partial: re-explains with a genuinely different analogy (checked against every analogy already spent on this concept this session — `lib/db/accessors/adaptationState.ts`, seeded at scripting time with the original explanation's analogy so even the *first* miss can't repeat it), a new example, a fresh question at an adjusted difficulty. If the model reuses a banned analogy anyway, one repair round is fired before falling through. A second consecutive miss on the same concept drops to its prerequisite instead of a third attempt at the same content. |
-| Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. When nothing scores above the relevance floor, it says so rather than inventing an answer. |
+| Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. This does **not** hard-refuse an off-document question: when nothing scores above the relevance floor it says so, then still answers from general knowledge — the anti-hallucination contract is `FollowUpAnswer.grounded` (computed from retrieval results, not the model's own wording), a machine-checkable signal a caller can always trust regardless of how the model phrased the answer. |
 | Continue (assessment) | `assess.ts` | Final quiz drawn from the taught concepts (weighted toward ones missed at checkpoints), then a report. Score/weak-areas/misconceptions-held/concepts-understood are computed **deterministically** from recorded verdicts; the model only phrases `recommendedRevision`/`suggestedNextTopic`, grounded in those computed facts, never inventing a weak area that wasn't measured. |
 | Continue (paths) | `path.ts` | Broad topic ("teach me machine learning") or explicit multi-day request → an ordered `LearningPathStep[]`, first step unlocked, rest locked; `unlockNextStep()` advances it. Each step's own `LessonPlan` is generated lazily by `plan.ts` when the learner actually starts it. |
-| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence into one call (`createTaughtLessonSession`): plans, scripts every concept, persists `lesson_session`/`lesson_plan`/`concepts`/`scenes`/`questions`, seeds adaptation state. Every model call happens before the first write and the writes run in one transaction, so a scripting call that fails upstream leaves no half-written `active` session behind. This is the glue `app/api/teach/sessions` calls; kept out of the route so it's independently testable. |
+| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence, split into a FAST phase and a BACKGROUND phase. `planTaughtLessonSession()` does one planning call (verified live: ~50s for a 3-concept lesson — a single request, not the old design's minutes) and persists `lesson_session`/`lesson_plan`/`concepts` in one transaction. `scriptTaughtLessonSession()` scripts every concept **concurrently** (`Promise.allSettled`, not a sequential loop — the calls are independent; verified live: ~94s to script all 3 concepts, in the background, not blocking the caller) and persists scenes/questions/adaptation-state as each one finishes; a single concept's failure is isolated (recorded in `scripting_error`, that concept just has no scenes) rather than failing the whole lesson. `lesson_sessions.scripting_status` (`pending`→`in_progress`→`ready`\|`partial`\|`failed`) is what a caller polls. This split exists because the old single-call design took 273s in one live-measured run and then failed outright — see the fixes below. |
 | Shared | `llm.ts` | Every `lib/teach` structured call goes through this thin wrapper around `lib/sarvam`'s `json()` rather than calling it directly — see the token-budget/timeout note below. |
 
 ### API surface (`app/api/teach/`)
 
-`POST /intent` (parse instruction) · `POST /sessions` (plan + script + persist
-a full lesson) · `GET /sessions/[id]` (session + plan + scenes + answers, for
-a player to render/resume) · `POST /sessions/[id]/answer` (evaluate + adapt)
-· `POST /sessions/[id]/ask` (grounded follow-up / language switch) ·
+`POST /intent` (parse instruction) · `POST /sessions` (**plans** the lesson
+and returns as one request — verified live at ~50s for 3 concepts, not the
+old design's 273s-then-fail — with `scriptingStatus: "pending"`; scripting
+then runs in the background, verified live at ~94s more for those 3
+concepts, in parallel) · `GET /sessions/[id]`
+(session + plan + whatever scenes have scripted so far + `scriptingProgress`
++ answers — poll this until `scriptingStatus` is
+`"ready"`/`"partial"`/`"failed"`) · `POST /sessions/[id]/answer` (evaluate +
+adapt) · `POST /sessions/[id]/ask` (grounded follow-up / language switch) ·
 `POST /sessions/[id]/assess` then `POST /sessions/[id]/assess/submit`
 (generate quiz, then grade it and produce the report) · `POST /paths` (broad
 topic / multi-day). A judge or the lesson-player slice can drive a complete
@@ -296,21 +301,42 @@ session — plan from a topic or an uploaded document, teach it, get asked a
 question, answer wrongly and watch it re-explain differently, finish with a
 report naming real weak areas — through this surface alone.
 
-### Three real-behaviour fixes this slice made to the Sarvam call path
+### Real-behaviour fixes this slice made, all found by running the actual teaching loop against the live API (not assumed)
 
-All three found by running the actual teaching loop against the live API (not
-assumed). The first two are minimal, additive, backward-compatible changes to
-the foundation client rather than workarounds in `lib/teach`; the third is a
-`lib/teach` prompting rule, not a `lib/sarvam` change:
+**The reasoning-token budget was the root cause of both the slowness and the
+outright failures.** `sarvam-105b` spends its `max_tokens` budget on
+`reasoning_content` FIRST and only then writes `content`. Measured live on a
+heavy structured call: reasoning alone ran 26,000-34,000 characters (roughly
+6,500-8,500 tokens), so a call budgeted at `max_tokens: 8000` returned
+`finish_reason: "length"` with **content completely empty** three times out
+of four — not a model failure, a budget that never had room for output at
+all. `reasoning_effort`, `reasoning.effort`, `thinking: false` and
+`max_reasoning_tokens` were all tested live against the same prompt: none is
+rejected, and none reliably reduces reasoning (`reasoning_effort: "low"`
+produced *more* reasoning than the baseline, 8,834 vs 5,905 characters) — do
+not spend time on them. The two real levers, both applied here:
 
-1. **`timeoutMs` was unplumbable.** `ChatCompletionRequest`/`JsonRequest` had
-   no way to raise `lib/sarvam`'s 30s default even though `sarvamPost()`
-   already accepted it — a large `maxTokens` response (a full scripted
-   concept: five narration fields, two visuals, a question, in one JSON
-   object) can genuinely take the reasoning model past 30s. Added
-   `timeoutMs?: number` to both request types, passed through in `chat()`.
-   `lib/teach/llm.ts` defaults every teaching-engine call to 60s.
-2. **A JSON-mode response still needs the exact key names spelled out.**
+1. **Budget for it.** `lib/sarvam/config.ts`'s `DEFAULT_MAX_TOKENS` raised
+   from 4096 to **28,000** — on the order of the 24,000-32,000 range the
+   measurement calls for — and `DEFAULT_TIMEOUT_MS` from 30s to 90s to match
+   (a call that size, verified live, averages ~47s). This is a shared
+   `lib/sarvam` default, not a `lib/teach`-only override, because every
+   slice calling `sarvam-105b` hits the same reasoning cost. Re-verified at
+   this value: **4/4 succeeded** on the exact prompt shape that failed 3/4
+   times at 8000, averaging 47s.
+2. **Ask for less per call.** `script.ts`'s `scriptConcept()` now fires two
+   smaller calls in parallel instead of one large one (see the table above)
+   — this is each caller's own responsibility, not something raising the
+   shared default alone fixes, since a call can still be arbitrarily large.
+3. `lib/teach/llm.ts` adds one bounded outer retry (on top of `lib/sarvam`'s
+   existing one internal repair attempt) specifically for `truncated`/
+   `invalid-json`/`invalid-schema` — a safety net for a genuinely malformed
+   response, not the primary fix; it does not retry `timeout`/`http`/
+   `network`/`config` errors, where a same-request retry wouldn't help.
+
+Two smaller fixes, also found live:
+
+4. **A JSON-mode response still needs the exact key names spelled out.**
    `json<T>()`'s `response_format: json_object` makes the model emit valid
    JSON, but not necessarily matching the caller's zod schema — verified
    live, a prompt that only *describes* the desired fields in prose got a
@@ -318,7 +344,7 @@ the foundation client rather than workarounds in `lib/teach`; the third is a
    of `summary`/`subject`/`difficulty`/`visualContent`/`visualCaption`).
    Every `lib/teach` prompt now ends with an explicit `"Respond with ONLY a
    JSON object of exactly this shape: {...}"` block naming every key.
-3. Language codes like `"en-IN"` alone weren't a reliable instruction either
+5. Language codes like `"en-IN"` alone weren't a reliable instruction either
    — verified live, the model sometimes wrote Hindi despite an `en-IN`
    request. `lib/teach/profile.ts`'s `languageInstruction()` names the
    language in words ("Write in English (language code \"en-IN\").") and
@@ -401,6 +427,15 @@ the foundation client rather than workarounds in `lib/teach`; the third is a
   learner's teaching language** — they're navigational metadata, not taught
   content, so this was scoped out; each step's actual `LessonPlan` (generated
   lazily when the learner starts it) is fully multilingual via `plan.ts`.
+- **Background scripting is in-process fire-and-forget, not a durable job
+  queue.** `app/api/teach/sessions` kicks off `scriptTaughtLessonSession()`
+  without awaiting it, relying on the Node process staying alive after the
+  response is sent — true for `next dev`/`next start` (a persistent process,
+  which this app is), false for a serverless/edge deployment. There's no
+  external queue (no Redis, no worker), so a server restart mid-scripting
+  leaves a session's `scripting_status` stuck at `'in_progress'` forever with
+  no automatic recovery. Acceptable for a single-process hackathon demo;
+  would need a real job queue for a multi-instance or serverless deployment.
 - **No CI workflow is wired up.** GitHub Actions currently refuses to start
   any job on the account this repo is hosted under ("recent account payments
   have failed or your spending limit needs to be increased") — an account

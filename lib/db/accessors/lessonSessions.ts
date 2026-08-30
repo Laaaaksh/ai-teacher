@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../connection";
-import type { LessonSessionRow, LessonSessionStatus } from "../types";
+import type { LessonSessionRow, LessonSessionStatus, ScriptingStatus } from "../types";
 import type { LanguageCode, LearningDepth } from "../../types";
 
 interface Row {
@@ -15,6 +15,8 @@ interface Row {
   current_scene_order: number;
   started_at: string;
   completed_at: string | null;
+  scripting_status: string;
+  scripting_error: string | null;
 }
 
 function fromRow(row: Row): LessonSessionRow {
@@ -30,6 +32,8 @@ function fromRow(row: Row): LessonSessionRow {
     currentSceneOrder: row.current_scene_order,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    scriptingStatus: row.scripting_status as ScriptingStatus,
+    scriptingError: row.scripting_error,
   };
 }
 
@@ -84,6 +88,14 @@ export function advanceLessonSessionScene(id: string, currentSceneOrder: number)
 /** Mid-lesson language switch ("ab hindi mein samjhao") — the session's language changes, scene position and history do not. */
 export function updateLessonSessionLanguage(id: string, language: LanguageCode): LessonSessionRow {
   getDb().prepare("UPDATE lesson_sessions SET language = ? WHERE id = ?").run(language, id);
+  return getLessonSession(id)!;
+}
+
+/** Moves the background scripting job's status forward — a caller polls GET /api/teach/sessions/:id for this rather than blocking POST on the whole lesson being scripted. */
+export function updateLessonSessionScriptingStatus(id: string, status: ScriptingStatus, error?: string): LessonSessionRow {
+  getDb()
+    .prepare("UPDATE lesson_sessions SET scripting_status = ?, scripting_error = ? WHERE id = ?")
+    .run(status, error ?? null, id);
   return getLessonSession(id)!;
 }
 

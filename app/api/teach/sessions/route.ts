@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getConceptProgressForLearner, getDocument, getDocumentChunks, getLearnerProfile, listLessonSessionsForLearner } from "@/lib/db";
+import {
+  getConceptProgressForLearner,
+  getDocument,
+  getDocumentChunks,
+  getLearnerProfile,
+  listLessonSessionsForLearner,
+  updateLessonSessionScriptingStatus,
+} from "@/lib/db";
 import { LANGUAGE_CODES } from "@/lib/teach/profile";
-import { createTaughtLessonSession } from "@/lib/teach/session";
+import { planTaughtLessonSession, scriptTaughtLessonSession } from "@/lib/teach/session";
+import { runLlm } from "../llmErrors";
+import type { DocumentChunkRow } from "@/lib/db/types";
 
 export const runtime = "nodejs";
 
@@ -17,12 +26,17 @@ const CreateSessionSchema = z.object({
 });
 
 /**
- * "Plan -> Explain -> Demonstrate -> Question" — POST creates a full taught
- * lesson session (concepts, scenes, checkpoint questions) from either a bare
- * topic or an uploaded document (`sourceDocumentId`), personalised by any
- * prior progress this learner has on record. This is the slowest endpoint
- * in the engine (one LLM call per concept, plus planning/summary) since it
- * scripts the entire lesson up front rather than beat-by-beat.
+ * "Plan" — POST plans the lesson (one LLM call — verified live: ~50s for a
+ * 3-concept lesson, still one request, not several minutes) and returns as
+ * soon as the plan is persisted; `scriptingStatus: "pending"`
+ * on the returned session means scenes/questions aren't there yet. Scripting
+ * every concept (the slow, multi-LLM-call part) then runs in the background
+ * — this relies on the Node process staying alive after the response is
+ * sent, true for `next dev`/`next start` but not a serverless/edge
+ * deployment (see docs/ARCHITECTURE.md Known limitations). Poll
+ * GET /api/teach/sessions/[id] until `scriptingStatus` is
+ * "ready"/"partial"/"failed"; scenes for concepts that finish scripting
+ * appear incrementally, not all at once.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => undefined);
@@ -37,7 +51,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Learner profile ${input.learnerProfileId} not found.` }, { status: 404 });
   }
 
-  let documentChunks;
+  let documentChunks: DocumentChunkRow[] | undefined;
   if (input.sourceDocumentId) {
     const document = getDocument(input.sourceDocumentId);
     if (!document) {
@@ -46,8 +60,8 @@ export async function POST(req: NextRequest) {
     documentChunks = getDocumentChunks(input.sourceDocumentId);
   }
 
-  try {
-    const taught = await createTaughtLessonSession({
+  const planned = await runLlm("Planning the lesson", () =>
+    planTaughtLessonSession({
       learnerProfile,
       topic: input.topic,
       sourceDocumentId: input.sourceDocumentId,
@@ -57,12 +71,20 @@ export async function POST(req: NextRequest) {
       depth: input.depth,
       language: input.language,
       priorProgress: getConceptProgressForLearner(input.learnerProfileId),
-    });
-    return NextResponse.json(taught, { status: 201 });
-  } catch (err) {
-    console.error("Failed to create taught lesson session:", err);
-    return NextResponse.json({ error: "Failed to plan and script the lesson." }, { status: 502 });
-  }
+    }),
+  );
+  if (!planned.ok) return planned.response;
+  const { session, plan } = planned.value;
+
+  // Fire-and-forget: scripting happens after the response is sent. A failure
+  // here must still land in a terminal, pollable status rather than leaving
+  // scriptingStatus stuck at "in_progress" forever.
+  void scriptTaughtLessonSession(session, plan, learnerProfile, input.language).catch((err) => {
+    console.error(`Background scripting failed for session ${session.id}:`, err);
+    updateLessonSessionScriptingStatus(session.id, "failed", (err as Error).message);
+  });
+
+  return NextResponse.json({ session, plan }, { status: 201 });
 }
 
 export async function GET(req: NextRequest) {
