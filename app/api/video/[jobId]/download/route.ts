@@ -5,7 +5,7 @@ import { getVideoJobStatus } from "@/lib/video/jobs";
 
 export const runtime = "nodejs";
 
-/** Streams the rendered MP4 from disk rather than buffering it — a 20-minute lesson's output can run into the hundreds of MB, and this route must not hold that in memory. */
+/** Streams the rendered MP4 from disk rather than buffering it — output size grows without bound as lessons get longer, and this route must not hold a whole file in memory. */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
   const job = getVideoJobStatus(jobId);

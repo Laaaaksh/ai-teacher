@@ -75,12 +75,21 @@ to re-render, produces visually identical output.
 
 ### Memory
 
-A 20-minute lesson is handled by: one persistent browser + one capture page
-(not one per scene), frames written straight to disk and deleted right after
-each scene's `ffmpeg` encode (never held in memory), and the final concat
-using `ffmpeg -c copy` (stream copy, no re-encode, no buffering). The
-download route (`app/api/video/[jobId]/download/route.ts`) streams the file
-from disk rather than reading it into memory.
+The pipeline holds no whole-lesson buffer at any stage: one persistent
+browser + one capture page (not one per scene), frames written straight to
+disk and deleted right after each scene's `ffmpeg` encode (never held in
+memory), and the final concat using `ffmpeg -c copy` (stream copy, no
+re-encode, no buffering). The download route
+(`app/api/video/[jobId]/download/route.ts`) streams the file from disk rather
+than reading it into memory. Cost is therefore per scene, not per lesson.
+
+**What was actually measured**: the ~80-second, three-scene demo lesson
+(`scripts/demo-lesson.ts`). Server RSS stayed flat across it — roughly 75MB
+down to 56MB, peaking around 73MB — with no per-scene accumulation. Longer
+lessons, including a 20-minute one, are *expected* to hold at that level
+because the design is per-scene, but no render of that duration has been
+measured. Treat the 20-minute case as an unverified extrapolation, not a
+tested claim.
 
 ## `VisualSpec.content` contract per renderer
 
@@ -166,9 +175,12 @@ by the API.
   timestamps, so `captions.ts` splits narration into ~8-word cues spaced
   evenly across the measured audio duration.
 - **24fps default** (`DEFAULT_FPS` in `render.ts`) — a deliberate
-  time/quality tradeoff for a 15–20 minute lesson's frame count; raise it
+  time/quality tradeoff for a long lesson's frame count; raise it
   per-request via `fps` if a demo needs smoother motion and render time is
   not a constraint.
+- **Only short lessons have been rendered** — the longest measured run is the
+  ~80-second demo lesson; see [Memory](#memory) for what that measured and
+  what remains extrapolation.
 
 ## Manually verifying a render
 
