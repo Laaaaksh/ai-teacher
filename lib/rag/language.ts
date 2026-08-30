@@ -21,27 +21,46 @@ import type { LanguageCode } from "../types";
 
 /** Unicode script ranges used to guess a text's dominant language when no explicit code is known. */
 const SCRIPT_RANGES: { code: LanguageCode; pattern: RegExp }[] = [
-  { code: "hi-IN", pattern: /[ऀ-ॿ]/ }, // Devanagari (Hindi, and Marathi — indistinguishable by script alone; Hindi is the more common default)
-  { code: "bn-IN", pattern: /[ঀ-৿]/ }, // Bengali
-  { code: "ta-IN", pattern: /[஀-௿]/ }, // Tamil
-  { code: "te-IN", pattern: /[ఀ-౿]/ }, // Telugu
-  { code: "kn-IN", pattern: /[ಀ-೿]/ }, // Kannada
-  { code: "ml-IN", pattern: /[ഀ-ൿ]/ }, // Malayalam
-  { code: "gu-IN", pattern: /[઀-૿]/ }, // Gujarati
-  { code: "pa-IN", pattern: /[਀-੿]/ }, // Gurmukhi (Punjabi)
+  { code: "hi-IN", pattern: /[ऀ-ॿ]/g }, // Devanagari (Hindi, and Marathi — indistinguishable by script alone; Hindi is the more common default)
+  { code: "bn-IN", pattern: /[ঀ-৿]/g }, // Bengali
+  { code: "ta-IN", pattern: /[஀-௿]/g }, // Tamil
+  { code: "te-IN", pattern: /[ఀ-౿]/g }, // Telugu
+  { code: "kn-IN", pattern: /[ಀ-೿]/g }, // Kannada
+  { code: "ml-IN", pattern: /[ഀ-ൿ]/g }, // Malayalam
+  { code: "gu-IN", pattern: /[઀-૿]/g }, // Gujarati
+  { code: "pa-IN", pattern: /[਀-੿]/g }, // Gurmukhi (Punjabi)
 ];
 
+/** Latin letters compete on the same footing as the Indic scripts above, so English text quoting one Devanagari term stays English. */
+const LATIN_PATTERN = /[A-Za-z]/g;
+
+function countMatches(text: string, pattern: RegExp): number {
+  return text.match(pattern)?.length ?? 0;
+}
+
 /**
- * Best-effort language guess from Unicode script, falling back to English
- * for Latin-script text (including Hinglish, which is written in Latin
- * script with Hindi code-switching — treating it as English for detection
- * purposes is deliberate; see the LanguageCode doc comment in lib/types.ts).
+ * Best-effort language guess from the *dominant* Unicode script — the one
+ * with the most characters, not merely the first one that appears, since a
+ * single foreign term should not flip a whole document's language and so
+ * its retrieval path (see translateQueryForRetrieval below). Falls back to
+ * English for Latin-script text (including Hinglish, which is written in
+ * Latin script with Hindi code-switching — treating it as English for
+ * detection purposes is deliberate; see the LanguageCode doc comment in
+ * lib/types.ts).
  */
 export function detectLanguage(text: string): LanguageCode {
+  let best: LanguageCode = "en-IN";
+  let bestCount = countMatches(text, LATIN_PATTERN);
+
   for (const { code, pattern } of SCRIPT_RANGES) {
-    if (pattern.test(text)) return code;
+    const count = countMatches(text, pattern);
+    if (count > bestCount) {
+      best = code;
+      bestCount = count;
+    }
   }
-  return "en-IN";
+
+  return best;
 }
 
 /** "hinglish" is not a /translate target/source code — treat it as English text (see lib/types.ts's LanguageCode doc comment). */

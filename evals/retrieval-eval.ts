@@ -27,7 +27,7 @@ async function main() {
   const { saveDocument } = await import("../lib/db/accessors/documents");
   const { indexDocument } = await import("../lib/rag/embed");
   const { retrieve } = await import("../lib/rag/retrieve");
-  const { ground, DENSE_RELEVANCE_THRESHOLD } = await import("../lib/rag/ground");
+  const { ground, isRelevant, DENSE_RELEVANCE_THRESHOLD } = await import("../lib/rag/ground");
   const { SarvamError } = await import("../lib/sarvam/errors");
 
   const fixturePath = path.join(__dirname, "fixtures", "electricity-basics.pdf");
@@ -76,15 +76,15 @@ async function main() {
     try {
       const retrieved = await retrieve({ documentId: document.id, query: c.question, queryLanguage: c.queryLanguage, topK: 3 });
       const topPage = retrieved[0]?.chunk.page;
-      const topDense = retrieved[0]?.denseScore ?? 0;
+      const bestDense = retrieved.reduce((max, r) => Math.max(max, r.denseScore), 0);
 
       if (c.expectRefusal) {
-        const refused = topDense < DENSE_RELEVANCE_THRESHOLD;
-        console.log(`${refused ? "PASS" : "FAIL"}  ${c.name} — top denseScore=${topDense.toFixed(3)} (threshold ${DENSE_RELEVANCE_THRESHOLD})`);
+        const refused = !isRelevant(retrieved);
+        console.log(`${refused ? "PASS" : "FAIL"}  ${c.name} — best denseScore=${bestDense.toFixed(3)} (threshold ${DENSE_RELEVANCE_THRESHOLD})`);
         if (!refused) failures++;
       } else {
         const ok = topPage === c.expectedPage;
-        console.log(`${ok ? "PASS" : "FAIL"}  ${c.name} — expected page ${c.expectedPage}, got page ${topPage} (denseScore=${topDense.toFixed(3)})`);
+        console.log(`${ok ? "PASS" : "FAIL"}  ${c.name} — expected page ${c.expectedPage}, got page ${topPage} (best denseScore=${bestDense.toFixed(3)})`);
         if (!ok) failures++;
       }
     } catch (err) {

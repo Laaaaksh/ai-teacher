@@ -178,12 +178,21 @@ function IndexProgressPanel({ documentId }: { documentId: string }) {
     let timer: ReturnType<typeof setTimeout>;
 
     async function poll() {
-      const res = await fetch(`/api/documents/${documentId}/index`);
-      if (!res.ok || cancelled) return;
-      const data: IndexProgress = await res.json();
-      if (cancelled) return;
-      setProgress(data);
-      if (!data.done) timer = setTimeout(poll, 1500);
+      try {
+        const res = await fetch(`/api/documents/${documentId}/index`);
+        if (cancelled) return;
+        if (!res.ok) {
+          timer = setTimeout(poll, 1500);
+          return;
+        }
+        const data: IndexProgress = await res.json();
+        if (cancelled) return;
+        setProgress(data);
+        if (!data.done) timer = setTimeout(poll, 1500);
+      } catch {
+        // A dev-server restart mid-index rejects the fetch; keep polling so the bar recovers rather than freezing.
+        if (!cancelled) timer = setTimeout(poll, 1500);
+      }
     }
     poll();
 

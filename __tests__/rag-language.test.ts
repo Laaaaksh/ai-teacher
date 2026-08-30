@@ -30,6 +30,11 @@ describe("detectLanguage", () => {
     expect(detectLanguage("ஓம் விதி")).toBe("ta-IN");
   });
 
+  it("picks the dominant script, not the first one that appears", () => {
+    expect(detectLanguage("Ohm's Law, written ओम, relates voltage and current in a resistive circuit.")).toBe("en-IN");
+    expect(detectLanguage("ओम का नियम voltage और current को जोड़ता है")).toBe("hi-IN");
+  });
+
   it("falls back to English for Latin-script text, including Hinglish", () => {
     expect(detectLanguage("Ohm's Law relates voltage and current.")).toBe("en-IN");
     expect(detectLanguage("Yeh circuit ka basic law hai.")).toBe("en-IN");

@@ -13,9 +13,10 @@ known-correct expected source pages.
   Ohm's Law, Circuits & Kirchhoff's Laws), asserting the top retrieved chunk
   comes from that page.
 - **Anti-hallucination gate**: one question the fixture does *not* cover
-  ("capital of France"), asserting the top result's cosine similarity falls
-  below `DENSE_RELEVANCE_THRESHOLD` — the same check `lib/rag/ground.ts`
-  uses to refuse rather than invent an answer.
+  ("capital of France"), asserting no retrieved chunk's cosine similarity
+  reaches `DENSE_RELEVANCE_THRESHOLD` — it calls `isRelevant()` from
+  `lib/rag/ground.ts` directly, so the eval and the production gate cannot
+  drift apart.
 - **Cross-language retrieval**: the Ohm's Law question asked in Hindi
   against the (English) fixture, asserting it still retrieves the correct
   page — this needs `SARVAM_API_KEY` (query translation; see
@@ -55,9 +56,9 @@ npx tsx evals/fixtures/generate-electricity-basics.ts
 
 ## Tuning `DENSE_RELEVANCE_THRESHOLD`
 
-`lib/rag/ground.ts` gates grounding on the top result's raw cosine
-similarity, not the fused BM25+dense rank score (see that file's doc
-comment for why). Against this fixture, an on-topic query's top dense score
+`lib/rag/ground.ts` gates grounding on the best raw cosine similarity among
+the retrieved chunks, not the fused BM25+dense rank score (see that file's
+doc comment for why). Against this fixture, an on-topic query's best dense score
 is consistently 0.55–0.85; an off-topic query's is under 0.1 — the current
 threshold (0.32) sits with wide margin on both sides. If a future document
 type or question style narrows that margin, re-run this eval after changing

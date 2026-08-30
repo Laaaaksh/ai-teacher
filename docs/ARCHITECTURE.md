@@ -102,8 +102,9 @@ the RAG slice's job.
 - **Grounding** (`lib/rag/ground.ts`): retrieves, and either answers
   strictly from the retrieved excerpts (sarvam-105b, instructed to cite
   `[1]`/`[2]`/etc. and never use outside knowledge) or refuses honestly. The
-  refusal is gated on a **code-enforced threshold** on the top result's raw
-  cosine similarity (`DENSE_RELEVANCE_THRESHOLD`, currently 0.32 — see
+  refusal is gated on a **code-enforced threshold** on the best raw cosine
+  similarity in the retrieved set (the fused RRF order can rank a weaker
+  dense match first, so the gate reads the maximum, not `retrieved[0]`) (`DENSE_RELEVANCE_THRESHOLD`, currently 0.32 — see
   `evals/README.md` for how it was tuned), not on the model's own judgement
   — sarvam-105b's pretraining likely "knows" things like Ohm's Law
   regardless of what the uploaded material says, so refusal can't be left to

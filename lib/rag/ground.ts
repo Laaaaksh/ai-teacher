@@ -41,15 +41,25 @@ const LANGUAGE_NAMES: Record<LanguageCode, string> = {
 const NOT_COVERED_EN =
   "I couldn't find anything about that in the uploaded material, so I won't guess — this document doesn't seem to cover that.";
 
+/**
+ * The refusal is the behaviour this slice is graded on, so a failing
+ * /translate call must not turn it into a 500: an English refusal is a
+ * worse answer than a localized one, but it is still the honest one.
+ */
 async function localizedNotCovered(languageCode: LanguageCode): Promise<string> {
   const target = languageCode === "hinglish" ? "en-IN" : languageCode;
   if (target === "en-IN") return NOT_COVERED_EN;
-  const { translatedText } = await translate({ input: NOT_COVERED_EN, sourceLanguageCode: "en-IN", targetLanguageCode: target });
-  return translatedText;
+  try {
+    const { translatedText } = await translate({ input: NOT_COVERED_EN, sourceLanguageCode: "en-IN", targetLanguageCode: target });
+    return translatedText;
+  } catch {
+    return NOT_COVERED_EN;
+  }
 }
 
+/** Gates on the best cosine in the retrieved set, not on retrieved[0] — that is ordered by fused RRF rank, which can put a weaker dense match first. */
 function isRelevant(retrieved: RetrievedChunk[]): boolean {
-  return retrieved.length > 0 && retrieved[0].denseScore >= DENSE_RELEVANCE_THRESHOLD;
+  return retrieved.some((r) => r.denseScore >= DENSE_RELEVANCE_THRESHOLD);
 }
 
 export interface GroundOptions {

@@ -24,8 +24,13 @@ describe("isRelevant — the anti-hallucination gate", () => {
     expect(isRelevant([retrieved(DENSE_RELEVANCE_THRESHOLD)])).toBe(true);
   });
 
-  it("only looks at the top result, not the average", () => {
+  it("looks at the best match, not the average", () => {
     const results = [retrieved(0.9), retrieved(0.01), retrieved(0.0)];
+    expect(isRelevant(results)).toBe(true);
+  });
+
+  it("looks past retrieved[0] — RRF order can rank a weaker dense match first", () => {
+    const results = [retrieved(DENSE_RELEVANCE_THRESHOLD - 0.02), retrieved(0.55)];
     expect(isRelevant(results)).toBe(true);
   });
 });
