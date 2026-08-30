@@ -150,6 +150,21 @@ describe("json<T>()", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("throws a typed 'invalid-schema' error when well-formed JSON never matches the schema", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () =>
+        jsonResponse({ choices: [{ message: { content: '{"answer": "not a number"}' }, finish_reason: "stop" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { json } = await import("../lib/sarvam/client");
+    await expect(json(schema, { messages: [{ role: "user", content: "q" }] })).rejects.toMatchObject({
+      kind: "invalid-schema",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retries when JSON is valid but fails schema validation", async () => {
     const fetchMock = vi
       .fn()

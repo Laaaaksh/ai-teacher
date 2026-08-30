@@ -8,7 +8,23 @@ export const runtime = "nodejs";
  *  it whole (then parsing on top) is enough to OOM the single demo process. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+/** Multipart boundaries and part headers add a little on top of the file itself,
+ *  so the header-level check needs slack or a file right at the cap is rejected. */
+const MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES + 1024 * 1024;
+
 export async function POST(req: NextRequest) {
+  /* req.formData() buffers the whole body, so the cap has to be enforced from the
+   * header first. A client that omits Content-Length (chunked transfer) slips past
+   * this and is only caught by the file.size check below, after buffering — an
+   * accepted limitation for a single-key demo, not worth streaming multipart for. */
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json(
+      { error: `Request body exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB upload limit.` },
+      { status: 413 },
+    );
+  }
+
   const formData = await req.formData();
   const file = formData.get("file");
 
