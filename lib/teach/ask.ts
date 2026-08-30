@@ -25,8 +25,32 @@ import type { DocumentChunkRow, LearnerProfileRow } from "../db/types";
 import type { Citation, Concept, LanguageCode } from "../types";
 import { z } from "zod";
 
+/**
+ * Standard short English stopword list, plus the single-letter remnants
+ * apostrophes leave behind ("Ohm's" -> ["ohm", "s"]). These carry no topical
+ * signal, so letting them score is what made *any* English question clear the
+ * relevance floor against ordinary prose — the reason `grounded` could come
+ * back true for a question the material says nothing about.
+ */
+const STOPWORDS = new Set([
+  "a", "about", "above", "after", "again", "all", "am", "an", "and", "any", "are", "as", "at",
+  "be", "because", "been", "before", "being", "below", "between", "both", "but", "by",
+  "can", "cannot", "could", "did", "do", "does", "doing", "down", "during",
+  "each", "few", "for", "from", "further", "had", "has", "have", "having",
+  "he", "her", "here", "hers", "herself", "him", "himself", "his", "how",
+  "i", "if", "in", "into", "is", "it", "its", "itself", "just",
+  "me", "more", "most", "my", "myself", "no", "nor", "not", "now",
+  "of", "off", "on", "once", "only", "or", "other", "ought", "our", "ours", "ourselves", "out", "over", "own",
+  "same", "she", "should", "so", "some", "such", "than", "that", "the", "their", "theirs",
+  "them", "themselves", "then", "there", "these", "they", "this", "those", "through", "to", "too",
+  "under", "until", "up", "very", "was", "we", "were", "what", "when", "where", "which",
+  "while", "who", "whom", "why", "will", "with", "would",
+  "you", "your", "yours", "yourself", "yourselves",
+  "d", "ll", "m", "o", "re", "s", "t", "ve", "y",
+]);
+
 function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => !STOPWORDS.has(t));
 }
 
 /** Normalized term-overlap score, roughly comparable across chunks of different length — not BM25, but enough to rank and to threshold "nothing relevant". */
@@ -46,6 +70,16 @@ export function lexicalScore(query: string, text: string): number {
   return score / queryTerms.size;
 }
 
+/**
+ * Re-measured against the stopword-filtered score distribution (the old value
+ * was calibrated against scores that stopwords inflated, where it never
+ * rejected anything). Now: an off-document question with no content-word
+ * overlap scores 0; one incidental content-word match against a normal-length
+ * chunk tops out around 0.05; a genuinely on-topic question scores 0.066 (worst
+ * case, few matches against a long chunk) up to 0.41. 0.05 sits in that gap.
+ * Raising it further starts rejecting on-topic questions about long chunks,
+ * which is the worse error — it drops citations the material really does support.
+ */
 const RELEVANCE_FLOOR = 0.05;
 const TOP_K = 4;
 
