@@ -199,4 +199,17 @@ export const migrations: Migration[] = [
       CREATE INDEX idx_concept_adaptation_state_session ON concept_adaptation_state(lesson_session_id);
     `,
   },
+  {
+    version: 3,
+    name: "session scripting status",
+    sql: `
+      -- POST /api/teach/sessions now returns as soon as PLANNING finishes;
+      -- per-concept SCRIPTING (the slow, LLM-heavy part) runs in the
+      -- background and a caller polls GET /api/teach/sessions/:id for this
+      -- status rather than blocking on one multi-minute request.
+      ALTER TABLE lesson_sessions ADD COLUMN scripting_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (scripting_status IN ('pending','in_progress','ready','partial','failed'));
+      ALTER TABLE lesson_sessions ADD COLUMN scripting_error TEXT;
+    `,
+  },
 ];

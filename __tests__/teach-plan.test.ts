@@ -19,21 +19,32 @@ const LEARNER = { level: "beginner" as const, goal: "pass exam", style: "example
 
 describe("deriveStructure", () => {
   it("gives a 5-minute lesson a single essential concept", () => {
-    expect(deriveStructure(5)).toEqual({ bucket: "essential", targetConceptCount: 1, includePracticeConcept: false });
+    expect(deriveStructure(5, "standard")).toEqual({ bucket: "essential", targetConceptCount: 1, includePracticeConcept: false });
   });
 
   it("gives a 20-minute lesson several structured concepts with no practice concept", () => {
-    const s = deriveStructure(20);
+    const s = deriveStructure(20, "standard");
     expect(s.bucket).toBe("structured");
     expect(s.targetConceptCount).toBeGreaterThanOrEqual(2);
     expect(s.includePracticeConcept).toBe(false);
   });
 
   it("gives a 60-minute lesson a deep structure with a practice concept", () => {
-    const s = deriveStructure(60);
+    const s = deriveStructure(60, "standard");
     expect(s.bucket).toBe("deep");
     expect(s.includePracticeConcept).toBe(true);
-    expect(s.targetConceptCount).toBeGreaterThan(deriveStructure(20).targetConceptCount);
+    expect(s.targetConceptCount).toBeGreaterThan(deriveStructure(20, "standard").targetConceptCount);
+  });
+
+  it("depth changes concept count independently of duration: overview < standard < deep at the same time budget", () => {
+    const overview = deriveStructure(60, "overview");
+    const standard = deriveStructure(60, "standard");
+    const deep = deriveStructure(60, "deep");
+    expect(overview.targetConceptCount).toBeLessThan(standard.targetConceptCount);
+    expect(deep.targetConceptCount).toBeGreaterThan(standard.targetConceptCount);
+    // duration-derived structure (bucket, includePracticeConcept) is unaffected by depth
+    expect(overview.bucket).toBe(standard.bucket);
+    expect(deep.bucket).toBe(standard.bucket);
   });
 });
 

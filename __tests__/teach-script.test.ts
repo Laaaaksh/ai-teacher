@@ -55,25 +55,33 @@ describe("scriptConcept", () => {
     citations: [],
   };
 
+  // scriptConcept fires two INDEPENDENT calls via Promise.all (core teaching: intro+explanation; practice: example+checkpoint+transition).
+  // JS dispatches Promise.all's array left-to-right synchronously up to each call's first await, so fetch call order is deterministic: [0] = core, [1] = practice.
+  const CORE_PAYLOAD = {
+    introductionNarration: "Let's talk about Ohm's Law.",
+    explanationNarration: "Think of current like water flow...",
+    explanationAnalogyLabel: "water pipe analogy for current",
+    explanationVisualContent: "graph TD; V-->I",
+    explanationVisualCaption: "Circuit",
+  };
+  const PRACTICE_PAYLOAD = {
+    exampleNarration: "If V=10 and R=2, I=5.",
+    exampleVisualContent: "I = 10 / 2 = 5",
+    exampleVisualCaption: "Worked example",
+    transitionNarration: "Next, let's look at power.",
+    checkpointQuestion: {
+      type: "mcq",
+      prompt: "What happens to current if resistance increases at constant voltage?",
+      options: ["It increases", "It decreases", "It stays the same"],
+      referenceAnswer: "It decreases",
+      difficulty: 2,
+    },
+    checkpointVisualContent: "graph TD; R-->I",
+    checkpointVisualCaption: "Resistance vs current, no worked values",
+  };
+
   it("produces five ordered beats and a checkpoint question, splitting the concept's time budget across them", async () => {
-    stubChatSequence({
-      introductionNarration: "Let's talk about Ohm's Law.",
-      explanationNarration: "Think of current like water flow...",
-      explanationAnalogyLabel: "water pipe analogy for current",
-      explanationVisualContent: "graph TD; V-->I",
-      explanationVisualCaption: "Circuit",
-      exampleNarration: "If V=10 and R=2, I=5.",
-      exampleVisualContent: "I = 10 / 2 = 5",
-      exampleVisualCaption: "Worked example",
-      transitionNarration: "Next, let's look at power.",
-      checkpointQuestion: {
-        type: "mcq",
-        prompt: "What happens to current if resistance increases at constant voltage?",
-        options: ["It increases", "It decreases", "It stays the same"],
-        referenceAnswer: "It decreases",
-        difficulty: 2,
-      },
-    });
+    stubChatSequence(CORE_PAYLOAD, PRACTICE_PAYLOAD);
 
     const scripted = await scriptConcept({
       concept,
@@ -89,19 +97,23 @@ describe("scriptConcept", () => {
     expect(totalBeatSeconds).toBeLessThanOrEqual(concept.timeBudgetSeconds + 25); // rounding + 5s floors per beat
   });
 
-  it("names each beat's own renderer in the prompt, not the concept overview's", async () => {
-    const fetchMock = stubChatSequence({
-      introductionNarration: "i",
-      explanationNarration: "e",
-      explanationAnalogyLabel: "pipeline analogy",
-      explanationVisualContent: "graph TD; A-->B",
-      explanationVisualCaption: "c",
-      exampleNarration: "x",
-      exampleVisualContent: "const x = 1;",
-      exampleVisualCaption: "c",
-      transitionNarration: "t",
-      checkpointQuestion: { type: "short-answer", prompt: "p", options: null, referenceAnswer: "a", difficulty: 3 },
+  it("gives the checkpoint its own visual content — never the explanation's derivation", async () => {
+    stubChatSequence(CORE_PAYLOAD, PRACTICE_PAYLOAD);
+
+    const scripted = await scriptConcept({
+      concept,
+      learnerProfile: { level: "beginner", goal: "", style: "", priorKnowledge: "" },
+      language: "en-IN",
     });
+
+    const explanationVisual = scripted.beats.find((b) => b.type === "explanation")?.visual?.content;
+    const checkpointVisual = scripted.beats.find((b) => b.type === "checkpoint")?.visual?.content;
+    expect(checkpointVisual).toBe(PRACTICE_PAYLOAD.checkpointVisualContent);
+    expect(checkpointVisual).not.toBe(explanationVisual);
+  });
+
+  it("names each beat's own renderer in the prompt, not the concept overview's", async () => {
+    const fetchMock = stubChatSequence(CORE_PAYLOAD, PRACTICE_PAYLOAD);
 
     const scripted = await scriptConcept({
       concept: { ...concept, subject: "programming", visual: { kind: "architecture-diagram", renderer: "mermaid", content: "", rationale: "r" } },
@@ -109,11 +121,14 @@ describe("scriptConcept", () => {
       language: "en-IN",
     });
 
-    // programming: explanation renders as code (shiki), the concept overview as a diagram (mermaid).
-    const systemPrompt = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content as string;
-    expect(systemPrompt).toContain('explanationVisualContent is rendered by "shiki"');
-    expect(systemPrompt).toContain('exampleVisualContent is rendered by "shiki"');
-    expect(systemPrompt).not.toContain('renderer is "mermaid"');
+    // programming: explanation/example/checkpoint all render as code (shiki), the concept overview as a diagram (mermaid) — not asserted here since scriptConcept never asks about the overview.
+    const coreSystemPrompt = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content as string;
+    const practiceSystemPrompt = JSON.parse(fetchMock.mock.calls[1][1].body).messages[0].content as string;
+    expect(coreSystemPrompt).toContain('explanationVisualContent is rendered by "shiki"');
+    expect(practiceSystemPrompt).toContain('exampleVisualContent is rendered by "shiki"');
+    expect(practiceSystemPrompt).toContain('checkpointVisualContent is rendered by "shiki"');
+    expect(coreSystemPrompt).not.toContain('renderer is "mermaid"');
     expect(scripted.beats.find((b) => b.type === "example")?.visual?.renderer).toBe("shiki");
+    expect(scripted.beats.find((b) => b.type === "checkpoint")?.visual?.renderer).toBe("shiki");
   });
 });

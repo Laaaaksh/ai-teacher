@@ -176,12 +176,26 @@ const BEAT_TIME_SHARE: Record<"introduction" | "explanation" | "example" | "chec
   transition: 0.1,
 };
 
-const ScriptSchema = z.object({
+/*
+ * Scripting a concept used to be one JSON call asking for every beat at
+ * once (5 narration fields + 2 visuals + a full question object). Verified
+ * live, sarvam-105b's reasoning cost is prompt-driven, not just
+ * output-size-driven, but a smaller, narrower ask still reasons less and
+ * returns faster — and splitting into two INDEPENDENT calls fired via
+ * Promise.all costs no wall-clock time (parallel, not sequential) while
+ * roughly halving each individual call's schema complexity. Introduction +
+ * explanation form one call (the "core teaching" beat); example +
+ * checkpoint + transition form the other.
+ */
+const CoreTeachingSchema = z.object({
   introductionNarration: z.string(),
   explanationNarration: z.string(),
   explanationAnalogyLabel: z.string(),
   explanationVisualContent: z.string(),
   explanationVisualCaption: z.string(),
+});
+
+const PracticeSchema = z.object({
   exampleNarration: z.string(),
   exampleVisualContent: z.string(),
   exampleVisualCaption: z.string(),
@@ -193,6 +207,9 @@ const ScriptSchema = z.object({
     referenceAnswer: z.string(),
     difficulty: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   }),
+  /** A visual for the checkpoint that illustrates the RELATIONSHIP being tested, not the worked answer — never the same content as the explanation's derivation. */
+  checkpointVisualContent: z.string(),
+  checkpointVisualCaption: z.string(),
 });
 
 export interface ScriptConceptInput {
@@ -214,85 +231,104 @@ export async function scriptConcept(input: ScriptConceptInput): Promise<Scripted
         .join("\n")}`
     : "No source material was uploaded for this concept; teach from general knowledge.";
 
-  const script = await json(ScriptSchema, {
-    messages: [
-      {
-        role: "system",
-        content:
-          `You are an expert ${concept.subject} teacher scripting one beat-by-beat lesson segment for a ${learnerProfile.level} learner. ` +
-          `Learner's goal: ${learnerProfile.goal || "general understanding"}. Preferred style: ${learnerProfile.style || "clear and direct"}. ` +
-          `Prior knowledge: ${learnerProfile.priorKnowledge || "none stated"}. ` +
-          `${languageInstruction(language)} This applies to ALL narration and the checkpoint question. ` +
-          "Produce: an introduction line, an explanation with a named analogy distinct from generic phrasing (explanationAnalogyLabel should be a short 3-6 word tag naming the analogy, e.g. 'water pipe analogy for current'), " +
-          "a worked example, a transition line into the next concept, and one checkpoint question that tests understanding of THIS concept specifically (not trivia). " +
-          `Each visualContent field must be real, renderer-appropriate source (LaTeX for katex, Mermaid syntax for mermaid, source code for shiki, plain HTML/text otherwise) illustrating this concept — not a description of a visual. ` +
-          `explanationVisualContent is rendered by "${explanationVisual.renderer}" (${renderedAs(explanationVisual.renderer)}); ` +
-          `exampleVisualContent is rendered by "${exampleVisual.renderer}" (${renderedAs(exampleVisual.renderer)}). Write each one for its own renderer, even when the two differ.` +
-          `\n\nRespond with ONLY a JSON object of exactly this shape (no other keys, no markdown fences):\n` +
-          `{"introductionNarration": string, "explanationNarration": string, "explanationAnalogyLabel": string, "explanationVisualContent": string, "explanationVisualCaption": string, ` +
-          `"exampleNarration": string, "exampleVisualContent": string, "exampleVisualCaption": string, "transitionNarration": string, ` +
-          `"checkpointQuestion": {"type": one of "mcq"|"short-answer"|"problem-solving"|"application"|"explain-in-own-words", "prompt": string, "options": string[] or null (only for mcq), "referenceAnswer": string, "difficulty": integer 1-5}}`,
-      },
-      {
-        role: "user",
-        content: `Concept: ${concept.title}\nSummary: ${concept.summary}\n${grounding}`,
-      },
-    ],
-    temperature: 0.6,
-  });
+  const teacherPreamble =
+    `You are an expert ${concept.subject} teacher scripting a beat-by-beat lesson segment for a ${learnerProfile.level} learner. ` +
+    `Learner's goal: ${learnerProfile.goal || "general understanding"}. Preferred style: ${learnerProfile.style || "clear and direct"}. ` +
+    `Prior knowledge: ${learnerProfile.priorKnowledge || "none stated"}. ${languageInstruction(language)} ` +
+    `Every visualContent field must be real, renderer-appropriate source (LaTeX for katex, Mermaid syntax for mermaid, source code for shiki, plain HTML/text otherwise) illustrating this concept — not a description of a visual.`;
+
+  const conceptContext = `Concept: ${concept.title}\nSummary: ${concept.summary}\n${grounding}`;
+
+  // Fired concurrently — independent asks about the same concept, so splitting them costs no wall-clock time while roughly halving each call's schema complexity (see the note above CoreTeachingSchema).
+  const [core, practice] = await Promise.all([
+    json(CoreTeachingSchema, {
+      messages: [
+        {
+          role: "system",
+          content:
+            `${teacherPreamble} ` +
+            "Produce an introduction line and an explanation with a named analogy distinct from generic phrasing (explanationAnalogyLabel should be a short 3-6 word tag naming the analogy, e.g. 'water pipe analogy for current'). " +
+            `explanationVisualContent is rendered by "${explanationVisual.renderer}" (${renderedAs(explanationVisual.renderer)}).` +
+            `\n\nRespond with ONLY a JSON object of exactly this shape (no other keys, no markdown fences):\n` +
+            `{"introductionNarration": string, "explanationNarration": string, "explanationAnalogyLabel": string, "explanationVisualContent": string, "explanationVisualCaption": string}`,
+        },
+        { role: "user", content: conceptContext },
+      ],
+      temperature: 0.6,
+    }),
+    json(PracticeSchema, {
+      messages: [
+        {
+          role: "system",
+          content:
+            `${teacherPreamble} ` +
+            "Produce a worked example, a transition line into the next concept, and one checkpoint question that tests understanding of THIS concept specifically (not trivia). " +
+            `exampleVisualContent is rendered by "${exampleVisual.renderer}" (${renderedAs(exampleVisual.renderer)}). ` +
+            `checkpointVisualContent is rendered by "${checkpointVisual.renderer}" (${renderedAs(checkpointVisual.renderer)}) and MUST NOT contain the worked solution or answer to the checkpoint question — show only the bare relationship/diagram/equation shell the question is about, not its resolution, or the checkpoint would display the answer next to the question testing it.` +
+            `\n\nRespond with ONLY a JSON object of exactly this shape (no other keys, no markdown fences):\n` +
+            `{"exampleNarration": string, "exampleVisualContent": string, "exampleVisualCaption": string, "transitionNarration": string, ` +
+            `"checkpointQuestion": {"type": one of "mcq"|"short-answer"|"problem-solving"|"application"|"explain-in-own-words", "prompt": string, "options": string[] or null (only for mcq), "referenceAnswer": string, "difficulty": integer 1-5}, ` +
+            `"checkpointVisualContent": string, "checkpointVisualCaption": string}`,
+        },
+        { role: "user", content: conceptContext },
+      ],
+      temperature: 0.6,
+    }),
+  ]);
 
   const seconds = (share: keyof typeof BEAT_TIME_SHARE) =>
     Math.max(5, Math.round(concept.timeBudgetSeconds * BEAT_TIME_SHARE[share]));
 
   const beats: ScriptedBeat[] = [
-    { type: "introduction", narration: script.introductionNarration, estimatedSeconds: seconds("introduction") },
+    { type: "introduction", narration: core.introductionNarration, estimatedSeconds: seconds("introduction") },
     {
       type: "explanation",
-      narration: script.explanationNarration,
-      analogyLabel: script.explanationAnalogyLabel,
+      narration: core.explanationNarration,
+      analogyLabel: core.explanationAnalogyLabel,
       visual: {
         kind: explanationVisual.kind,
         renderer: explanationVisual.renderer,
-        content: script.explanationVisualContent,
-        caption: script.explanationVisualCaption,
+        content: core.explanationVisualContent,
+        caption: core.explanationVisualCaption,
         rationale: explanationVisual.rationale,
       },
       estimatedSeconds: seconds("explanation"),
     },
     {
       type: "example",
-      narration: script.exampleNarration,
+      narration: practice.exampleNarration,
       visual: {
         kind: exampleVisual.kind,
         renderer: exampleVisual.renderer,
-        content: script.exampleVisualContent,
-        caption: script.exampleVisualCaption,
+        content: practice.exampleVisualContent,
+        caption: practice.exampleVisualCaption,
         rationale: exampleVisual.rationale,
       },
       estimatedSeconds: seconds("example"),
     },
     {
       type: "checkpoint",
-      narration: script.checkpointQuestion.prompt,
+      narration: practice.checkpointQuestion.prompt,
       visual: {
         kind: checkpointVisual.kind,
         renderer: checkpointVisual.renderer,
-        content: script.explanationVisualContent,
+        content: practice.checkpointVisualContent,
+        caption: practice.checkpointVisualCaption,
         rationale: checkpointVisual.rationale,
       },
       estimatedSeconds: seconds("checkpoint"),
     },
-    { type: "transition", narration: script.transitionNarration, estimatedSeconds: seconds("transition") },
+    { type: "transition", narration: practice.transitionNarration, estimatedSeconds: seconds("transition") },
   ];
 
   return {
     beats,
     question: {
-      type: script.checkpointQuestion.type,
-      prompt: script.checkpointQuestion.prompt,
-      options: script.checkpointQuestion.options ?? undefined,
-      referenceAnswer: script.checkpointQuestion.referenceAnswer,
-      difficulty: script.checkpointQuestion.difficulty,
+      type: practice.checkpointQuestion.type,
+      prompt: practice.checkpointQuestion.prompt,
+      options: practice.checkpointQuestion.options ?? undefined,
+      referenceAnswer: practice.checkpointQuestion.referenceAnswer,
+      difficulty: practice.checkpointQuestion.difficulty,
     },
   };
 }

@@ -23,16 +23,33 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
 - Native modules (`better-sqlite3`) need `npm approve-scripts <pkg>` in this
   environment before `npm install` will run their build step — see the
   `allowScripts` block in `package.json`.
+- **`sarvam-105b` burns its `max_tokens` budget on `reasoning_content` before
+  writing any `content`.** Measured live: reasoning alone can run 26,000-
+  34,000 characters, so a call budgeted below that returns `finish_reason:
+  "length"` with content EMPTY — not a model failure, a budget too small to
+  ever have room for output. `reasoning_effort`/`thinking`/
+  `max_reasoning_tokens` do not reliably control this (tested live; one even
+  made it worse) — don't spend time on them. `lib/sarvam/config.ts`'s
+  `DEFAULT_MAX_TOKENS` (28,000) and `DEFAULT_TIMEOUT_MS` (90s) already
+  account for this; a call that's unusually large should still be split into
+  smaller independent calls fired in parallel (see `script.ts`'s
+  `scriptConcept()`) rather than raising the budget further.
 - **`sarvam-105b`'s JSON mode does not infer your schema from prose.**
   `response_format: json_object` only guarantees valid JSON, not your field
   names — verified live, a prompt that just *describes* the desired content
   got plausible-but-wrong keys back. Every structured prompt needs an
   explicit `"Respond with ONLY a JSON object of exactly this shape: {...}"`
-  block naming every key, and every `lib/teach` call goes through
-  `lib/teach/llm.ts` (not `lib/sarvam` directly) for a raised default
-  `maxTokens`/`timeoutMs` — see `docs/ARCHITECTURE.md`'s "Three real-behaviour
-  fixes" for why. A raw language code like `"en-IN"` alone is also not a
-  reliable instruction; use `lib/teach/profile.ts`'s `languageInstruction()`.
+  block naming every key. Every `lib/teach` call goes through
+  `lib/teach/llm.ts` (not `lib/sarvam` directly), which adds one bounded
+  retry on a malformed/truncated response — see `docs/ARCHITECTURE.md`'s
+  "Real-behaviour fixes" for the full list. A raw language code like
+  `"en-IN"` alone is also not a reliable instruction; use
+  `lib/teach/profile.ts`'s `languageInstruction()`.
+- **`POST /api/teach/sessions` returns as soon as planning finishes** (not
+  after the whole lesson is scripted) — poll `GET /api/teach/sessions/:id`'s
+  `scriptingStatus` until it's `"ready"`/`"partial"`/`"failed"`. Don't
+  reintroduce a blocking all-in-one session creation call; that's the
+  multi-minute, single-point-of-failure design this replaced.
 
 ## Structure
 
