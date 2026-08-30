@@ -10,9 +10,11 @@ function splitParagraphs(pageText: string): ParsedParagraph[] {
 }
 
 /**
- * Parses a PDF into one section per page. A 300-page textbook is handled by
- * asking pdf-parse for text page-by-page (not one giant string) so memory
- * stays proportional to a single page at a time.
+ * Parses a PDF into one section per page, keeping the real page number so
+ * later slices can cite it. pdf-parse's getText() materialises every page's
+ * text at once, so a 300-page textbook's full text is resident — what this
+ * avoids is concatenating it into a second giant string and losing the page
+ * boundaries needed for citations.
  */
 export async function parsePdf(buffer: Buffer, title: string): Promise<ParsedDocument> {
   const parser = new PDFParse({ data: buffer });

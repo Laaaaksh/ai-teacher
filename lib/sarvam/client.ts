@@ -84,7 +84,9 @@ export interface JsonRequest {
  * from JSON.parse or a silently-wrong shape.
  */
 export async function json<T>(schema: z.ZodType<T>, req: JsonRequest): Promise<T> {
-  const attempt = async (messages: ChatMessage[]): Promise<{ value?: T; error?: string; rawContent: string }> => {
+  const attempt = async (
+    messages: ChatMessage[],
+  ): Promise<{ value?: T; error?: string; errorKind?: "invalid-json" | "invalid-schema"; rawContent: string }> => {
     const result = await chat({
       messages,
       maxTokens: req.maxTokens,
@@ -96,12 +98,16 @@ export async function json<T>(schema: z.ZodType<T>, req: JsonRequest): Promise<T
     try {
       parsed = JSON.parse(extractJsonBlock(result.content));
     } catch (err) {
-      return { error: `Invalid JSON: ${(err as Error).message}`, rawContent: result.content };
+      return { error: `Invalid JSON: ${(err as Error).message}`, errorKind: "invalid-json", rawContent: result.content };
     }
 
     const validated = schema.safeParse(parsed);
     if (!validated.success) {
-      return { error: `Schema validation failed: ${validated.error.message}`, rawContent: result.content };
+      return {
+        error: `Schema validation failed: ${validated.error.message}`,
+        errorKind: "invalid-schema",
+        rawContent: result.content,
+      };
     }
     return { value: validated.data, rawContent: result.content };
   };
@@ -121,7 +127,9 @@ export async function json<T>(schema: z.ZodType<T>, req: JsonRequest): Promise<T
   const second = await attempt(repairMessages);
   if (second.value !== undefined) return second.value;
 
-  throw new SarvamError("invalid-json", `sarvam-105b returned malformed/invalid JSON after one repair attempt: ${second.error}`);
+  const kind = second.errorKind ?? "invalid-json";
+  const what = kind === "invalid-schema" ? "JSON that does not match the required schema" : "malformed JSON";
+  throw new SarvamError(kind, `sarvam-105b returned ${what} after one repair attempt: ${second.error}`);
 }
 
 // ---------------------------------------------------------------------------

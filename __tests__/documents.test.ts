@@ -149,7 +149,22 @@ describe("chunkDocument", () => {
 
     expect(chunks.length).toBeGreaterThanOrEqual(2);
     for (const chunk of chunks) {
-      expect(chunk.text.length).toBeLessThanOrEqual(200);
+      expect(chunk.text.length).toBeLessThanOrEqual(20);
     }
+  });
+
+  it("hard-splits a single paragraph that alone exceeds the size limit", () => {
+    const paragraph = "word ".repeat(200).trim();
+    const chunks = chunkDocument(
+      { format: "txt", title: "dense.txt", sections: [{ order: 0, page: 1, paragraphs: [{ order: 0, text: paragraph }] }] },
+      50,
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.text.length).toBeLessThanOrEqual(50);
+      expect(chunk.page).toBe(1);
+    }
+    expect(chunks.map((c) => c.text).join(" ")).toBe(paragraph);
   });
 });

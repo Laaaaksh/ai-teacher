@@ -14,13 +14,12 @@ export async function parseDocx(buffer: Buffer, title: string): Promise<ParsedDo
   const $ = cheerio.load(html);
 
   const sections: ParsedSection[] = [];
-  let sectionOrder = 0;
   let paragraphOrder = 0;
-  let current: ParsedSection = { order: sectionOrder, paragraphs: [] };
+  let current: ParsedSection = { order: 0, paragraphs: [] };
 
   const pushCurrentIfNonEmpty = () => {
     if (current.title || current.paragraphs.length > 0) {
-      sections.push(current);
+      sections.push({ ...current, order: sections.length });
     }
   };
 
@@ -33,9 +32,8 @@ export async function parseDocx(buffer: Buffer, title: string): Promise<ParsedDo
 
       if (tag && HEADING_TAGS.has(tag)) {
         pushCurrentIfNonEmpty();
-        sectionOrder += 1;
         paragraphOrder = 0;
-        current = { order: sectionOrder, title: text, paragraphs: [] };
+        current = { order: sections.length, title: text, paragraphs: [] };
         return;
       }
 

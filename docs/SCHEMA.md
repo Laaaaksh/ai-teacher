@@ -92,6 +92,11 @@ paths; deleting a `document` cascades to its chunks and sets
 `source_document_id` to `NULL` on any session/plan that referenced it
 (the lesson itself is not deleted just because its source material was).
 
+One deliberate exception: `scenes.question_id` has no `REFERENCES` clause,
+because `questions.scene_id` already references `scenes(id)` and a reciprocal
+FK would be circular — slices writing a checkpoint scene must validate the
+question id themselves, since SQLite will accept a stale one silently.
+
 ## What later slices are expected to add
 
 - RAG slice: populate `document_chunks.embedding`; no new table needed

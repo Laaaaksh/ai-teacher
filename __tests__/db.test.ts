@@ -86,6 +86,20 @@ describe("document + chunk accessors", () => {
 });
 
 describe("lesson session, plan, scenes, questions", () => {
+  it("stores an explicitly-undefined sourceDocumentId as NULL", () => {
+    const learner = makeLearner();
+    const session = createLessonSession({
+      learnerProfileId: learner.id,
+      topic: "Electricity",
+      sourceDocumentId: undefined,
+      language: "en-IN",
+      totalMinutes: 20,
+      depth: "standard",
+    });
+
+    expect(session.sourceDocumentId).toBeNull();
+  });
+
   it("wires a full lesson session -> plan -> concepts -> scenes -> questions chain", () => {
     const learner = makeLearner();
     const session = createLessonSession({

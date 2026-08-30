@@ -50,7 +50,16 @@ export function createLessonSession(input: CreateLessonSessionInput): LessonSess
   db.prepare(
     `INSERT INTO lesson_sessions (id, learner_profile_id, topic, source_document_id, language, total_minutes, depth, status, current_scene_order, started_at)
      VALUES (@id, @learnerProfileId, @topic, @sourceDocumentId, @language, @totalMinutes, @depth, 'active', 0, @now)`,
-  ).run({ id, now, sourceDocumentId: input.sourceDocumentId ?? null, ...input });
+  ).run({
+    id,
+    now,
+    learnerProfileId: input.learnerProfileId,
+    topic: input.topic,
+    sourceDocumentId: input.sourceDocumentId ?? null,
+    language: input.language,
+    totalMinutes: input.totalMinutes,
+    depth: input.depth,
+  });
 
   return getLessonSession(id)!;
 }

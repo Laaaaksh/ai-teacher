@@ -4,12 +4,25 @@ import { listDocuments, saveDocument } from "@/lib/db";
 
 export const runtime = "nodejs";
 
+/** Course material well above this is not a real hackathon input, and buffering
+ *  it whole (then parsing on top) is enough to OOM the single demo process. */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Expected a multipart form with a 'file' field." }, { status: 400 });
+  }
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return NextResponse.json(
+      {
+        error: `${file.name} is ${(file.size / (1024 * 1024)).toFixed(1)}MB; the limit is ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB.`,
+      },
+      { status: 413 },
+    );
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
