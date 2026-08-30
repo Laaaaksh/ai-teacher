@@ -32,9 +32,9 @@ first run.
 - `npm run lint` — ESLint
 - `npm test` — unit tests (vitest)
 
-No CI workflow is wired up yet — GitHub Actions is currently disabled on the
-account this repo is hosted under (billing block); see docs/ARCHITECTURE.md's
-Known limitations. Run the four scripts above locally before pushing.
+No CI workflow is wired up yet (why: Known limitations in
+`docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
+and `npm run build` locally before pushing.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
 schema. This repository is built up in slices; this foundation slice provides the

@@ -157,13 +157,15 @@ model.
 - **App scaffold**: Next.js 15 App Router, TypeScript strict, Tailwind v4.
   `npm run dev|build|typecheck|lint|test` all pass.
 - **`lib/sarvam/`**: a typed client for chat, TTS, translate, STT — the seam
-  every later slice calls through. Generous default `max_tokens`, typed
-  truncation/empty-content/timeout/http/network/config errors, one retry with
-  backoff on 429/5xx, and a `json<T>()` helper that validates structured output
-  with zod and retries once with a repair prompt on malformed JSON or a schema
-  mismatch. Verified against the real API during this build (reasoning content
-  present, truncation error fires correctly with a tight `max_tokens`, TTS
-  decodes to a playable WAV, translate round-trips English → Hindi).
+  every later slice calls through. Generous default `max_tokens`, errors typed
+  by `kind` (`SarvamErrorKind` in `lib/sarvam/errors.ts`), one retry with
+  backoff on 429/5xx only — a 200 whose body isn't JSON fails as `invalid-json`
+  rather than being re-POSTed against a request Sarvam already billed — and a
+  `json<T>()` helper that validates structured output with zod and retries once
+  with a repair prompt on malformed JSON or a schema mismatch. Verified against
+  the real API during this build (reasoning content present, truncation error
+  fires correctly with a tight `max_tokens`, TTS decodes to a playable WAV,
+  translate round-trips English → Hindi).
 - **`lib/documents/`**: PDF/DOCX/PPTX/TXT/Markdown → a structure-preserving
   `ParsedDocument` (document → sections/pages → paragraphs) and a chunker that
   never splits a chunk across sections, so every chunk keeps one unambiguous
