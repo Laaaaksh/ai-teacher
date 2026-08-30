@@ -1,9 +1,9 @@
 /**
- * Seeds a real mixed-subject lesson plan (math derivation, code + output,
- * a history timeline, a wrap-up) and renders it through the real pipeline —
- * real Sarvam TTS, real Chromium frame capture, real ffmpeg mux. Used to
- * manually verify the video-generation slice end to end; not part of the
- * automated test suite (it costs real TTS calls and takes real render time).
+ * Seeds a real mixed-subject lesson plan (math derivation, code + output, a
+ * history timeline/diagram) and renders it through the real pipeline — real
+ * Sarvam TTS, real Chromium frame capture, real ffmpeg mux — leaving the
+ * output at data/generated/demo-lesson.mp4 for manual inspection. Not part
+ * of the automated test suite (it costs real TTS calls and real render time).
  *
  * Run with: npx tsx scripts/demo-lesson.ts
  */
@@ -41,7 +41,6 @@ async function main() {
   const mathConceptId = randomUUID();
   const codeConceptId = randomUUID();
   const historyConceptId = randomUUID();
-  const summaryConceptId = randomUUID();
 
   const concepts: Concept[] = [
     {
@@ -104,26 +103,6 @@ async function main() {
     1637 : Descartes introduces modern algebraic notation`,
       },
     },
-    {
-      id: summaryConceptId,
-      title: "What to Remember",
-      summary: "Wrap-up bullets tying the lesson together.",
-      subject: "general",
-      difficulty: 1,
-      prerequisiteConceptIds: [mathConceptId, codeConceptId, historyConceptId],
-      timeBudgetSeconds: 40,
-      citations: [],
-      visual: {
-        kind: "bullets",
-        renderer: "html",
-        rationale: "A short recap is best as scannable bullets, not another diagram.",
-        content: JSON.stringify([
-          "The quadratic formula solves any ax^2+bx+c=0.",
-          "The same formula becomes a five-line Python function.",
-          "Algebra's notation took nearly 3,500 years to reach its modern form.",
-        ]),
-      },
-    },
   ];
 
   const plan = createLessonPlan({
@@ -167,23 +146,13 @@ async function main() {
       estimatedSeconds: 20,
       visual: concepts.find((c) => c.id === historyConceptId)!.visual,
     },
-    {
-      lessonPlanId: plan.id,
-      conceptId: summaryConceptId,
-      type: "summary",
-      order: 3,
-      narration:
-        "To recap: the quadratic formula solves any equation of this shape, that same formula is just a few lines of code, and the notation we used today took thousands of years to develop.",
-      estimatedSeconds: 14,
-      visual: concepts.find((c) => c.id === summaryConceptId)!.visual,
-    },
   ];
 
   createScenes(scenes);
 
   console.log(`Seeded lesson plan ${plan.id} with ${scenes.length} scenes.`);
 
-  const outputPath = path.join(process.cwd(), "data", "video-cache", "output", "demo-lesson.mp4");
+  const outputPath = path.join(process.cwd(), "data", "generated", "demo-lesson.mp4");
   const result = await renderLessonVideo(plan.id, outputPath, {
     onProgress: (p) => console.log(`[${p.stage}] ${p.percent}% — ${p.detail}`),
   });
