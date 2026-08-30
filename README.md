@@ -44,9 +44,23 @@ No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
 and `npm run build` locally before pushing.
 
-See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
-schema. This repository is built up in slices. Shipped so far: the app scaffold,
-the Sarvam client, document ingestion, persistence and shared types, plus the RAG
-and knowledge-grounding layer (local embeddings, hybrid BM25 + dense retrieval,
-cited answers or an honest refusal, cross-language querying, and chapter/concept
-extraction). Still to come: lesson planning, the lesson player, video generation.
+## What works today
+
+The web page covers the learner profile and uploading material (or naming a
+topic). The teaching loop itself — plan a lesson, teach it beat by beat, ask
+checkpoint questions, evaluate an answer, re-explain differently when it's
+wrong, then produce a report — runs behind `/api/teach/*` and is drivable end
+to end from there; see "The teaching engine" in `docs/ARCHITECTURE.md` for the
+endpoints. Note that `POST /api/teach/sessions` returns once the lesson is
+*planned* and scripts the lesson in the background, so poll
+`GET /api/teach/sessions/:id` until its `scriptingStatus` settles.
+
+Also shipped: the RAG and knowledge-grounding layer (local embeddings, hybrid
+BM25 + dense retrieval, cited answers or an honest refusal, cross-language
+querying, and chapter/concept extraction). Still to come, as a separate slice:
+the lesson player / video UI. Mid-lesson follow-ups are still grounded by a
+local lexical scorer rather than that retrieval stack — see Known limitations
+in `docs/ARCHITECTURE.md`.
+
+See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
+database schema.

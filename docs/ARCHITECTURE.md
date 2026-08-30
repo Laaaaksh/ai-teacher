@@ -63,13 +63,17 @@ after first download) for embeddings, fused with BM25 lexical scoring for
 retrieval. Every answer grounded in uploaded material must carry a citation
 back to its source chunk (document, page/section — see `Citation` in
 `lib/types.ts` and `document_chunks.page`/`section` in the schema). When
-retrieval finds nothing relevant, the teacher says so rather than inventing
-content — the anti-hallucination requirement, and it must be demonstrable, not
-just asserted.
+retrieval finds nothing relevant, the teacher says so rather than passing
+general knowledge off as the material — the anti-hallucination requirement,
+and it must be demonstrable, not just asserted, so the contract is a
+computed boolean (`FollowUpAnswer.grounded`, set from retrieval results in
+code) rather than the model's own wording. See `lib/teach/ask.ts`.
 
 Parsing an upload into a structure-preserving `ParsedDocument` with citable
 locations is `lib/documents/`'s job; everything from retrieval chunking onward
-is `lib/rag/`, below.
+is `lib/rag/`, below. `lib/teach/ask.ts` does not read that stack yet —
+mid-lesson follow-ups are grounded by a local lexical scorer over the same
+chunks (see Known limitations).
 
 ### RAG slice — implemented (`lib/rag/`)
 
@@ -174,16 +178,16 @@ Modelled explicitly as state (`lib/types.ts`), not as one long prompt:
 The planner classifies each concept's subject and picks a visual kind
 (`Concept.subject`, `VisualSpec.kind`/`renderer`, with a required
 `VisualSpec.rationale` string so the UI/docs can show *why* that visual was
-chosen):
-
-| Subject | Visual | Renderer |
-|---|---|---|
-| Mathematics | equations, step-by-step working, graphs | KaTeX + a plotter |
-| Physics | force/circuit diagrams, formulas, processes | Mermaid + KaTeX |
-| Biology | labelled diagrams, processes | Mermaid / labelled SVG |
-| History | timelines, maps, events | Mermaid timeline |
-| Programming | code, output, execution flow, architecture | Shiki + Mermaid |
-| General | concept maps, comparison tables, bullets | Mermaid / HTML |
+chosen). The decision is a plain lookup table, not a model call:
+`SUBJECT_VISUAL_RULES` in `lib/teach/script.ts` is the authoritative
+mapping — it owns every subject's default, the per-beat overrides (a maths
+checkpoint shows the bare equation, not the full derivation; a programming
+introduction opens with an architecture diagram before code) and the exact
+rationale string shown for each. In outline: mathematics → KaTeX working,
+physics → Mermaid diagrams with KaTeX for worked examples, chemistry and
+biology → Mermaid process/labelled diagrams, history → Mermaid timelines,
+programming → Shiki code plus Mermaid architecture, general → HTML bullets
+or a Mermaid concept map.
 
 ## Video generation
 
