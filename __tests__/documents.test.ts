@@ -74,6 +74,25 @@ async function buildTestPptx(): Promise<Buffer> {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
+async function buildTitleOnlyPptx(): Promise<Buffer> {
+  const zip = new JSZip();
+  zip.file(
+    "ppt/slides/slide1.xml",
+    `<?xml version="1.0"?>
+    <p:sld xmlns:a="a" xmlns:p="p">
+      <p:cSld>
+        <p:spTree>
+          <p:sp>
+            <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:txBody><a:p><a:r><a:t>Photosynthesis — a section divider</a:t></a:r></a:p></p:txBody>
+          </p:sp>
+        </p:spTree>
+      </p:cSld>
+    </p:sld>`,
+  );
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
 describe("parseDocument", () => {
   it("parses a PDF into one section per page with citable page numbers", async () => {
     const pdf = await buildTestPdf();
@@ -166,5 +185,15 @@ describe("chunkDocument", () => {
       expect(chunk.page).toBe(1);
     }
     expect(chunks.map((c) => c.text).join(" ")).toBe(paragraph);
+  });
+  it("emits one chunk for a section whose only text is its title", async () => {
+    const pptx = await buildTitleOnlyPptx();
+    const doc = await parseDocument(pptx, "outline.pptx");
+    const chunks = chunkDocument(doc);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toBe("Photosynthesis — a section divider");
+    expect(chunks[0].section).toBe("Photosynthesis — a section divider");
+    expect(chunks[0].page).toBe(1);
   });
 });

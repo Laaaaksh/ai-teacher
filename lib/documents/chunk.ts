@@ -46,6 +46,12 @@ export function chunkDocument(doc: ParsedDocument, maxChars: number = DEFAULT_CH
       buffer = "";
     };
 
+    // An outline slide or a bare heading carries its only text in the title;
+    // without this it would be dropped and never reach retrieval.
+    if (section.paragraphs.length === 0 && section.title?.trim()) {
+      buffer = section.title.trim();
+    }
+
     for (const paragraph of section.paragraphs) {
       for (const piece of splitOversizedParagraph(paragraph.text, maxChars)) {
         const candidate = buffer ? `${buffer}\n\n${piece}` : piece;

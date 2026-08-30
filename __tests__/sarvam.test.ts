@@ -207,3 +207,33 @@ describe("translate()", () => {
     expect(result.translatedText).toBe("नमस्ते");
   });
 });
+
+describe("checkHealth()", () => {
+  it("probes chat with at least the default max_tokens budget", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes("/chat/completions")) {
+        return Promise.resolve(jsonResponse({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }));
+      }
+      if (String(url).includes("/text-to-speech")) {
+        return Promise.resolve(jsonResponse({ audios: [Buffer.from("RIFF").toString("base64")] }));
+      }
+      if (String(url).includes("/translate")) return Promise.resolve(jsonResponse({ translated_text: "नमस्ते" }));
+      return Promise.resolve(jsonResponse({ transcript: "" }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { checkHealth } = await import("../lib/sarvam/client");
+    const { DEFAULT_MAX_TOKENS } = await import("../lib/sarvam/config");
+    const services = await checkHealth();
+
+    expect(services.every((s) => s.reachable)).toBe(true);
+
+    // A tight budget makes sarvam-105b burn max_tokens on reasoning_content and
+    // return finish_reason: length, which would report a healthy chat endpoint
+    // as unreachable. The probe must never ask for less than the client default.
+    const chatCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/chat/completions"));
+    expect(chatCall).toBeDefined();
+    const body = JSON.parse(chatCall![1].body as string);
+    expect(body.max_tokens).toBeGreaterThanOrEqual(DEFAULT_MAX_TOKENS);
+  });
+});

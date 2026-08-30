@@ -230,9 +230,11 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ ok: true; latencyMs: nu
 export async function checkHealth(): Promise<HealthCheckResult[]> {
   const [chatResult, ttsResult, translateResult] = await Promise.all([
     timed(() =>
+      // No maxTokens override: sarvam-105b spends its budget on
+      // reasoning_content first, so a tight probe budget returns
+      // finish_reason: length and reports a healthy endpoint as unreachable.
       chat({
         messages: [{ role: "user", content: "Reply with the single word: ok" }],
-        maxTokens: 200,
         temperature: 0,
       }),
     ),
