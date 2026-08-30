@@ -1,15 +1,13 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { createRequire } from "node:module";
+import path from "node:path";
 import type { Page } from "playwright";
 import { escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
 
-const require = createRequire(import.meta.url);
-
 let cachedBundle: string | undefined;
 function mermaidBundle(): string {
-  if (!cachedBundle) cachedBundle = fs.readFileSync(require.resolve("mermaid/dist/mermaid.min.js"), "utf8");
+  if (!cachedBundle) cachedBundle = fs.readFileSync(path.join(process.cwd(), "node_modules", "mermaid", "dist", "mermaid.min.js"), "utf8");
   return cachedBundle;
 }
 

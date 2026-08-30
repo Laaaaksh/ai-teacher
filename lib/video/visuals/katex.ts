@@ -1,11 +1,8 @@
 import katex from "katex";
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { asDisplayText, escapeHtml } from "../html";
 import type { RenderedVisual } from "./types";
-
-const require = createRequire(import.meta.url);
 
 const FONT_MIME: Record<string, string> = { woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf" };
 
@@ -20,7 +17,7 @@ let cachedCss: string | undefined;
 function katexCss(): string {
   if (cachedCss) return cachedCss;
 
-  const cssPath = require.resolve("katex/dist/katex.min.css");
+  const cssPath = path.join(process.cwd(), "node_modules", "katex", "dist", "katex.min.css");
   const cssDir = path.dirname(cssPath);
   const raw = fs.readFileSync(cssPath, "utf8");
 
