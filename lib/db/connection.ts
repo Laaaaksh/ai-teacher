@@ -29,6 +29,17 @@ export function getDb(): Database.Database {
   return instance;
 }
 
+/**
+ * Runs `work` inside a single database transaction, rolling back everything
+ * it wrote if it throws. Accessors that open their own transaction nest
+ * safely inside this one (better-sqlite3 turns those into savepoints), so a
+ * multi-accessor write like creating a whole taught lesson is all-or-nothing
+ * rather than leaving a half-written session behind.
+ */
+export function runInTransaction<T>(work: () => T): T {
+  return getDb().transaction(work)();
+}
+
 /** Test-only: close and drop the cached handle so the next getDb() call reopens fresh. */
 export function resetDbForTests(): void {
   instance?.close();

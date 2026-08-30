@@ -11,10 +11,12 @@ import {
   createLessonSession,
   createQuestion,
   createScenes,
+  runInTransaction,
   seedAdaptationState,
 } from "../db";
 import { planLesson } from "./plan";
 import { scriptConcept, scriptLessonSummary } from "./script";
+import type { ScriptedConcept } from "./script";
 import type { CreateSceneInput } from "../db/accessors/scenes";
 import type { ConceptProgressRow, DocumentChunkRow, LearnerProfileRow, LessonPlanRow, LessonSessionRow, QuestionRow, SceneRow } from "../db/types";
 import type { LanguageCode, LearningDepth } from "../types";
@@ -55,62 +57,13 @@ export async function createTaughtLessonSession(input: CreateTaughtSessionInput)
     throw new Error("planLesson produced no concepts.");
   }
 
-  const session = createLessonSession({
-    learnerProfileId: input.learnerProfile.id,
-    topic: input.topic,
-    sourceDocumentId: input.sourceDocumentId,
-    language: input.language,
-    totalMinutes: input.totalMinutes,
-    depth: input.depth,
-  });
-
-  const plan = createLessonPlan({
-    lessonSessionId: session.id,
-    learnerProfileId: input.learnerProfile.id,
-    topic: input.topic,
-    sourceDocumentId: input.sourceDocumentId,
-    language: input.language,
-    totalMinutes: input.totalMinutes,
-    depth: input.depth,
-    concepts,
-  });
-
-  const scenes: SceneRow[] = [];
-  const questions: QuestionRow[] = [];
-  let order = 0;
-
+  /* Every LLM call happens before anything is written: a concept whose
+   * scripting call times out must not leave a `status = 'active'` session
+   * behind whose scene list is silently truncated — from the outside that is
+   * indistinguishable from a complete lesson. */
+  const scripted: ScriptedConcept[] = [];
   for (const concept of concepts) {
-    const scripted = await scriptConcept({ concept, learnerProfile: input.learnerProfile, language: input.language });
-    const explanationBeat = scripted.beats.find((b) => b.type === "explanation");
-
-    seedAdaptationState({
-      lessonSessionId: session.id,
-      conceptId: concept.id,
-      initialAnalogy: explanationBeat?.analogyLabel,
-      initialDifficulty: scripted.question.difficulty,
-    });
-
-    const question = createQuestion({
-      conceptId: concept.id,
-      type: scripted.question.type,
-      prompt: scripted.question.prompt,
-      options: scripted.question.options,
-      referenceAnswer: scripted.question.referenceAnswer,
-      difficulty: scripted.question.difficulty,
-    });
-    questions.push(question);
-
-    const sceneInputs: CreateSceneInput[] = scripted.beats.map((beat) => ({
-      lessonPlanId: plan.id,
-      conceptId: concept.id,
-      type: beat.type,
-      order: order++,
-      narration: beat.narration,
-      visual: beat.visual,
-      questionId: beat.type === "checkpoint" ? question.id : undefined,
-      estimatedSeconds: beat.estimatedSeconds,
-    }));
-    scenes.push(...createScenes(sceneInputs));
+    scripted.push(await scriptConcept({ concept, learnerProfile: input.learnerProfile, language: input.language }));
   }
 
   const summaryBeat = await scriptLessonSummary({
@@ -119,19 +72,80 @@ export async function createTaughtLessonSession(input: CreateTaughtSessionInput)
     learnerProfile: input.learnerProfile,
     language: input.language,
   });
-  scenes.push(
-    ...createScenes([
-      {
-        lessonPlanId: plan.id,
-        conceptId: concepts[concepts.length - 1].id,
-        type: "summary",
-        order: order++,
-        narration: summaryBeat.narration,
-        visual: summaryBeat.visual,
-        estimatedSeconds: summaryBeat.estimatedSeconds,
-      },
-    ]),
-  );
 
-  return { session, plan, scenes, questions };
+  return runInTransaction(() => {
+    const session = createLessonSession({
+      learnerProfileId: input.learnerProfile.id,
+      topic: input.topic,
+      sourceDocumentId: input.sourceDocumentId,
+      language: input.language,
+      totalMinutes: input.totalMinutes,
+      depth: input.depth,
+    });
+
+    const plan = createLessonPlan({
+      lessonSessionId: session.id,
+      learnerProfileId: input.learnerProfile.id,
+      topic: input.topic,
+      sourceDocumentId: input.sourceDocumentId,
+      language: input.language,
+      totalMinutes: input.totalMinutes,
+      depth: input.depth,
+      concepts,
+    });
+
+    const scenes: SceneRow[] = [];
+    const questions: QuestionRow[] = [];
+    let order = 0;
+
+    concepts.forEach((concept, index) => {
+      const conceptScript = scripted[index];
+      const explanationBeat = conceptScript.beats.find((b) => b.type === "explanation");
+
+      seedAdaptationState({
+        lessonSessionId: session.id,
+        conceptId: concept.id,
+        initialAnalogy: explanationBeat?.analogyLabel,
+        initialDifficulty: conceptScript.question.difficulty,
+      });
+
+      const question = createQuestion({
+        conceptId: concept.id,
+        type: conceptScript.question.type,
+        prompt: conceptScript.question.prompt,
+        options: conceptScript.question.options,
+        referenceAnswer: conceptScript.question.referenceAnswer,
+        difficulty: conceptScript.question.difficulty,
+      });
+      questions.push(question);
+
+      const sceneInputs: CreateSceneInput[] = conceptScript.beats.map((beat) => ({
+        lessonPlanId: plan.id,
+        conceptId: concept.id,
+        type: beat.type,
+        order: order++,
+        narration: beat.narration,
+        visual: beat.visual,
+        questionId: beat.type === "checkpoint" ? question.id : undefined,
+        estimatedSeconds: beat.estimatedSeconds,
+      }));
+      scenes.push(...createScenes(sceneInputs));
+    });
+
+    scenes.push(
+      ...createScenes([
+        {
+          lessonPlanId: plan.id,
+          conceptId: concepts[concepts.length - 1].id,
+          type: "summary",
+          order: order++,
+          narration: summaryBeat.narration,
+          visual: summaryBeat.visual,
+          estimatedSeconds: summaryBeat.estimatedSeconds,
+        },
+      ]),
+    );
+
+    return { session, plan, scenes, questions };
+  });
 }

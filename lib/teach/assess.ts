@@ -7,9 +7,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { upsertConceptProgress } from "../db";
 import { json } from "./llm";
 import { languageInstruction } from "./profile";
-import type { LearnerProfileRow, MasteryLevel } from "../db/types";
+import type { ConceptProgressRow, LearnerProfileRow, MasteryLevel } from "../db/types";
 import type { AnswerVerdict, AssessmentReport, Concept, LanguageCode, Misconception, QuestionType } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,32 @@ export function computeScore(results: ConceptResult[]): number {
   if (results.length === 0) return 0;
   const total = results.reduce((sum, r) => sum + VERDICT_POINTS[r.verdict], 0);
   return Math.round(total / results.length);
+}
+
+/**
+ * The one owner of "what a verdict does to a learner's mastery": half the
+ * previous score, half this answer's points, so a single lucky or unlucky
+ * answer moves mastery without erasing the history. Both the checkpoint
+ * (`/answer`) and final-quiz (`/assess/submit`) paths go through this rather
+ * than each blending their own way. `previousScore` is undefined the first
+ * time this learner is scored on the concept.
+ */
+export function recordVerdictProgress(input: {
+  learnerProfileId: string;
+  conceptId: string;
+  conceptTitle: string;
+  verdict: AnswerVerdict;
+  previousScore?: number;
+}): ConceptProgressRow {
+  const points = VERDICT_POINTS[input.verdict];
+  const masteryScore = input.previousScore === undefined ? points : Math.round(input.previousScore * 0.5 + points * 0.5);
+  return upsertConceptProgress({
+    learnerProfileId: input.learnerProfileId,
+    conceptId: input.conceptId,
+    conceptTitle: input.conceptTitle,
+    mastery: deriveMastery(masteryScore),
+    masteryScore,
+  });
 }
 
 export function deriveMastery(score: number): MasteryLevel {

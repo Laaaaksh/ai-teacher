@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getLearnerProfile } from "@/lib/db";
 import { parseTeachingInstruction } from "@/lib/teach/profile";
+import { runLlm } from "../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -29,12 +30,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Learner profile ${parsed.data.learnerProfileId} not found.` }, { status: 404 });
   }
 
-  const intent = await parseTeachingInstruction({
-    instruction: parsed.data.instruction,
-    fallback: profile
-      ? { level: profile.level, language: profile.language, minutesAvailable: profile.minutesAvailable, depth: profile.depth, style: profile.style }
-      : undefined,
-  });
+  const intent = await runLlm("Parsing the teaching instruction", () =>
+    parseTeachingInstruction({
+      instruction: parsed.data.instruction,
+      fallback: profile
+        ? { level: profile.level, language: profile.language, minutesAvailable: profile.minutesAvailable, depth: profile.depth, style: profile.style }
+        : undefined,
+    }),
+  );
+  if (!intent.ok) return intent.response;
 
-  return NextResponse.json({ intent });
+  return NextResponse.json({ intent: intent.value });
 }

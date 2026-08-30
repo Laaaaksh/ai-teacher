@@ -12,12 +12,11 @@ import {
   getScenesForLessonPlan,
   recordAdaptationAttempt,
   recordStudentAnswer,
-  upsertConceptProgress,
-  type ConceptProgressRow,
 } from "@/lib/db";
 import { adaptAfterIncorrectAnswer } from "@/lib/teach/adapt";
-import { deriveMastery } from "@/lib/teach/assess";
+import { recordVerdictProgress } from "@/lib/teach/assess";
 import { evaluateAnswer } from "@/lib/teach/evaluate";
+import { runLlm } from "../../../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -37,6 +36,11 @@ function clampDifficulty(n: number): 1 | 2 | 3 | 4 | 5 {
  * on it this session, gives a new example and a fresh checkpoint question
  * (or drops to the prerequisite after repeated misses) — this is where the
  * adaptation the spec asks to be "visibly different" happens.
+ *
+ * Nothing is recorded until every model call for this answer has succeeded:
+ * an adaptation that fails upstream returns 502 with the answer unrecorded,
+ * so the client's retry grades the attempt once rather than blending the
+ * same answer into mastery twice.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id: sessionId } = await params;
@@ -60,32 +64,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const learnerProfile = getLearnerProfile(session.learnerProfileId)!;
 
-  const evaluation = await evaluateAnswer({
-    question,
-    concept,
-    studentAnswer: parsed.data.studentAnswer,
-    language: session.language,
-  });
+  const evaluated = await runLlm("Evaluating the answer", () =>
+    evaluateAnswer({ question, concept, studentAnswer: parsed.data.studentAnswer, language: session.language }),
+  );
+  if (!evaluated.ok) return evaluated.response;
+  const evaluation = evaluated.value;
 
-  const answerRow = recordStudentAnswer({
-    questionId: question.id,
-    lessonSessionId: sessionId,
-    studentAnswer: evaluation.studentAnswer,
-    verdict: evaluation.verdict,
-    misconception: evaluation.misconception,
-    feedback: evaluation.feedback,
-    difficultyAdjustment: evaluation.difficultyAdjustment,
-  });
+  const recordAnswer = () =>
+    recordStudentAnswer({
+      questionId: question.id,
+      lessonSessionId: sessionId,
+      studentAnswer: evaluation.studentAnswer,
+      verdict: evaluation.verdict,
+      misconception: evaluation.misconception,
+      feedback: evaluation.feedback,
+      difficultyAdjustment: evaluation.difficultyAdjustment,
+    });
 
-  updateConceptProgress(learnerProfile.id, concept.id, concept.title, evaluation.verdict);
+  const updateProgress = () =>
+    recordVerdictProgress({
+      learnerProfileId: learnerProfile.id,
+      conceptId: concept.id,
+      conceptTitle: concept.title,
+      verdict: evaluation.verdict,
+      previousScore: getConceptProgressForLearner(learnerProfile.id).find((p) => p.conceptId === concept.id)?.masteryScore,
+    });
 
   const adaptState = getAdaptationState(sessionId, concept.id);
+  const currentDifficulty = clampDifficulty(adaptState?.currentDifficulty ?? question.difficulty);
 
   if (evaluation.verdict === "correct") {
+    const answerRow = recordAnswer();
+    updateProgress();
     recordAdaptationAttempt({
       lessonSessionId: sessionId,
       conceptId: concept.id,
-      nextDifficulty: clampDifficulty((adaptState?.currentDifficulty ?? question.difficulty) + evaluation.difficultyAdjustment),
+      nextDifficulty: clampDifficulty(currentDifficulty + evaluation.difficultyAdjustment),
       countsAsAttempt: false,
     });
     return NextResponse.json({ evaluation: answerRow, adaptation: null });
@@ -96,21 +110,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ? plan.concepts.find((c) => concept.prerequisiteConceptIds.includes(c.id))
     : undefined;
 
-  const adaptation = await adaptAfterIncorrectAnswer({
-    concept,
-    evaluation: {
-      verdict: evaluation.verdict,
-      misconception: evaluation.misconception,
-      studentAnswer: evaluation.studentAnswer,
-      difficultyAdjustment: evaluation.difficultyAdjustment,
-    },
-    usedAnalogies: adaptState?.usedAnalogies ?? [],
-    currentDifficulty: clampDifficulty(adaptState?.currentDifficulty ?? question.difficulty),
-    learnerProfile,
-    language: session.language,
-    attemptNumber,
-    prerequisiteConcept,
-  });
+  const adapted = await runLlm("Adapting after the incorrect answer", () =>
+    adaptAfterIncorrectAnswer({
+      concept,
+      evaluation: {
+        verdict: evaluation.verdict,
+        misconception: evaluation.misconception,
+        studentAnswer: evaluation.studentAnswer,
+        difficultyAdjustment: evaluation.difficultyAdjustment,
+      },
+      usedAnalogies: adaptState?.usedAnalogies ?? [],
+      // The drop re-explains the *prerequisite*, so its own spent analogies are the ones that must be banned.
+      prerequisiteUsedAnalogies: prerequisiteConcept
+        ? getAdaptationState(sessionId, prerequisiteConcept.id)?.usedAnalogies ?? []
+        : undefined,
+      currentDifficulty,
+      learnerProfile,
+      language: session.language,
+      attemptNumber,
+      prerequisiteConcept,
+    }),
+  );
+  if (!adapted.ok) return adapted.response;
+  const adaptation = adapted.value;
+
+  const answerRow = recordAnswer();
+  updateProgress();
 
   const existingScenes = getScenesForLessonPlan(plan.id);
   const nextOrder = existingScenes.length ? Math.max(...existingScenes.map((s) => s.order)) + 1 : 0;
@@ -151,6 +176,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     nextDifficulty: adaptation.nextDifficulty,
   });
 
+  /* A drop records its analogy against the prerequisite, so the miss on the
+   * concept the learner actually failed has to be counted separately —
+   * otherwise its attemptCount stalls and every later miss re-triggers the
+   * same drop from the same stale state. */
+  if (adaptation.droppedToPrerequisite) {
+    recordAdaptationAttempt({
+      lessonSessionId: sessionId,
+      conceptId: concept.id,
+      nextDifficulty: currentDifficulty,
+    });
+  }
+
   return NextResponse.json({
     evaluation: answerRow,
     adaptation: {
@@ -161,11 +198,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       checkpointScene: checkpointSceneRow,
     },
   });
-}
-
-function updateConceptProgress(learnerProfileId: string, conceptId: string, conceptTitle: string, verdict: "correct" | "partial" | "incorrect"): ConceptProgressRow {
-  const points = { correct: 100, partial: 50, incorrect: 0 }[verdict];
-  const existing = getConceptProgressForLearner(learnerProfileId).find((p) => p.conceptId === conceptId);
-  const masteryScore = existing ? Math.round(existing.masteryScore * 0.5 + points * 0.5) : points;
-  return upsertConceptProgress({ learnerProfileId, conceptId, conceptTitle, mastery: deriveMastery(masteryScore), masteryScore });
 }

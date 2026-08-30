@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createLearningPath, getLearnerProfile, getLearningPathsForLearner } from "@/lib/db";
 import { generateLearningPath } from "@/lib/teach/path";
+import { runLlm } from "../llmErrors";
 
 export const runtime = "nodejs";
 
@@ -36,13 +37,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Learner profile ${input.learnerProfileId} not found.` }, { status: 404 });
   }
 
-  const drafts = await generateLearningPath({
-    topic: input.topic,
-    learnerProfile,
-    mode: input.mode,
-    totalSessions: input.totalSessions,
-    minutesPerSession: input.minutesPerSession,
-  });
+  const generated = await runLlm("Generating the learning path", () =>
+    generateLearningPath({
+      topic: input.topic,
+      learnerProfile,
+      mode: input.mode,
+      totalSessions: input.totalSessions,
+      minutesPerSession: input.minutesPerSession,
+    }),
+  );
+  if (!generated.ok) return generated.response;
+  const drafts = generated.value;
 
   const path = createLearningPath({
     learnerProfileId: input.learnerProfileId,
