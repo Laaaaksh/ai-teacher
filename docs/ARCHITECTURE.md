@@ -67,16 +67,15 @@ retrieval finds nothing relevant, the teacher says so rather than inventing
 content — the anti-hallucination requirement, and it must be demonstrable, not
 just asserted.
 
-This foundation slice parses documents into structure-preserving chunks with
-citable locations (`lib/documents/`) and stores them (`document_chunks`,
-`embedding` column left `NULL`); the embeddings and BM25 fusion themselves are
-the RAG slice's job.
+Parsing an upload into a structure-preserving `ParsedDocument` with citable
+locations is `lib/documents/`'s job; everything from retrieval chunking onward
+is `lib/rag/`, below.
 
 ### RAG slice — implemented (`lib/rag/`)
 
-- **Chunking** (`lib/rag/chunk.ts`): a second, retrieval-tuned chunker
-  (distinct from `lib/documents/chunk.ts`, which the upload route now calls
-  instead of the original) that overlaps chunks across a semantic boundary
+- **Chunking** (`lib/rag/chunk.ts`): a second, retrieval-tuned chunker —
+  the upload route now calls this one instead of the original
+  `lib/documents/chunk.ts` — that overlaps chunks across a semantic boundary
   (whole trailing paragraphs carried forward, never a mid-sentence cut) and
   builds a heading breadcrumb (`"Chapter 4 > Ohm's Law"`) from DOCX/Markdown's
   real heading levels (`ParsedSection.level`, added for this).
@@ -103,13 +102,14 @@ the RAG slice's job.
   strictly from the retrieved excerpts (sarvam-105b, instructed to cite
   `[1]`/`[2]`/etc. and never use outside knowledge) or refuses honestly. The
   refusal is gated on a **code-enforced threshold** on the best raw cosine
-  similarity in the retrieved set (the fused RRF order can rank a weaker
-  dense match first, so the gate reads the maximum, not `retrieved[0]`) (`DENSE_RELEVANCE_THRESHOLD`, currently 0.32 — see
-  `evals/README.md` for how it was tuned), not on the model's own judgement
-  — sarvam-105b's pretraining likely "knows" things like Ohm's Law
+  similarity in the retrieved set (`DENSE_RELEVANCE_THRESHOLD`, currently
+  0.32 — see `evals/README.md` for how it was tuned), not on the model's own
+  judgement — sarvam-105b's pretraining likely "knows" things like Ohm's Law
   regardless of what the uploaded material says, so refusal can't be left to
-  it deciding whether to comply with a system prompt. Verified live end to
-  end (`npm run eval:rag`; see `evals/`).
+  it deciding whether to comply with a system prompt. The gate reads the
+  maximum rather than `retrieved[0]`, because the fused RRF order can rank a
+  weaker dense match first. Verified live end to end (`npm run eval:rag`;
+  see `evals/`).
 - **Cross-language retrieval**: all-MiniLM-L6-v2 is English-tuned, so a
   Hindi query embedded directly against English chunks (or the reverse)
   scores near-random, and BM25 has zero token overlap across scripts.

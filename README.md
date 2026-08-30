@@ -19,7 +19,13 @@ npm run dev
 
 Requires Node 20+. No database server, vector DB, or other paid API is needed —
 SQLite lives on disk at `data/ai-teacher.sqlite` and is created automatically on
-first run.
+first run. Retrieval embeddings also run locally: the first document you index
+downloads a ~23MB MiniLM model to `.cache/transformers/` (gitignored), so that
+one run needs network; every run after it is offline.
+
+Open http://localhost:3000 for the learner-profile and upload entry point, or
+http://localhost:3000/rag-demo to upload a document and watch indexing → outline
+→ grounded question answering with citations.
 
 ## Scripts
 
@@ -30,13 +36,17 @@ first run.
   only after a `next dev`/`build`/`typegen`, so bare `tsc --noEmit` fails on a
   fresh clone
 - `npm run lint` — ESLint
-- `npm test` — unit tests (vitest)
+- `npm test` — unit tests (vitest); fast and network-free
+- `npm run eval:rag` — retrieval-quality eval against a real committed PDF and
+  the live Sarvam API, kept out of `npm test` on purpose (`evals/README.md`)
 
 No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
 and `npm run build` locally before pushing.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
-schema. This repository is built up in slices; this foundation slice provides the
-app scaffold, the Sarvam client, document ingestion, persistence and shared types
-that later slices (lesson planning, the lesson player, video generation) build on.
+schema. This repository is built up in slices. Shipped so far: the app scaffold,
+the Sarvam client, document ingestion, persistence and shared types, plus the RAG
+and knowledge-grounding layer (local embeddings, hybrid BM25 + dense retrieval,
+cited answers or an honest refusal, cross-language querying, and chapter/concept
+extraction). Still to come: lesson planning, the lesson player, video generation.
