@@ -53,6 +53,6 @@ export const TEACHER_PERSONAS: TeacherPersona[] = [
 
 export const DEFAULT_PERSONA_ID = "priya";
 
-export function getPersona(id: string | undefined): TeacherPersona {
+export function getPersona(id?: string): TeacherPersona {
   return TEACHER_PERSONAS.find((p) => p.id === id) ?? TEACHER_PERSONAS.find((p) => p.id === DEFAULT_PERSONA_ID)!;
 }

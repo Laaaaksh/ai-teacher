@@ -13,11 +13,13 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   advisories that are an accepted tradeoff (Known limitations in
   `docs/ARCHITECTURE.md`).
 - `next.config.ts` sets `serverExternalPackages` for `better-sqlite3`,
-  `pdf-parse`, `pdfjs-dist`, and `mammoth`. Without this, `pdf-parse` (which
-  bundles `pdfjs-dist`) breaks under Next's RSC webpack layer with
-  `TypeError: Object.defineProperty called on non-object` — any new
-  native-binding or CJS/ESM-interop-fragile package added under `lib/` should
-  be added here too rather than debugged from scratch.
+  `pdf-parse`, `pdfjs-dist`, `mammoth`, `playwright`, `mermaid`, and `katex`.
+  Without this, `pdf-parse` (which bundles `pdfjs-dist`) breaks under Next's
+  RSC webpack layer with `TypeError: Object.defineProperty called on
+  non-object`, and the video renderers lose the on-disk package layout they
+  read assets from — any new native-binding, CJS/ESM-interop-fragile, or
+  own-package-layout-reading package added under `lib/` should be added here
+  too rather than debugged from scratch.
 - `SARVAM_API_KEY` is the only AI credential this project uses; `.env.example`
   documents it. Never invent a dependency on another paid API.
 - Native modules (`better-sqlite3`) need `npm approve-scripts <pkg>` in this

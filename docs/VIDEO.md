@@ -193,7 +193,9 @@ called done.
   Starts a render in-process (see the job-queue limitation above) against an
   existing lesson plan (created by the lesson-planner slice).
 - `GET /api/video/:jobId` → live `{ status, progressPercent, stageDetail,
-  downloadUrl }`, written by the pipeline itself as it narrates/renders/muxes
-  each scene — not a fake spinner.
+  errorMessage, downloadUrl }`, written by the pipeline itself as it
+  narrates/renders/muxes each scene — not a fake spinner. `downloadUrl` is
+  `null` until `status === "completed"`; `errorMessage` carries the real
+  failure text when `status === "failed"`.
 - `GET /api/video/:jobId/download` → streams the MP4 once `status ===
   "completed"`.
