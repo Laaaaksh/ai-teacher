@@ -10,12 +10,45 @@ import { isSarvamError } from "@/lib/sarvam";
  *
  * Returning a discriminated result instead of throwing keeps the route in
  * control of what has already been persisted when the failure lands.
+ *
+ * It also puts a hard ceiling on how long a request may sit on model calls.
+ * One structured ask can internally become several attempts (lib/teach/llm.ts's
+ * outer retry x lib/sarvam's repair round x sarvamPost's HTTP retry), each
+ * carrying the 90s default timeout, and some routes chain more than one ask —
+ * so without a deadline a pathological upstream ties up the caller for many
+ * minutes. On expiry the caller gets a 504 immediately; the in-flight work is
+ * abandoned, not awaited (it holds no lock and its writes are all-or-nothing
+ * per route).
  */
 export type LlmOutcome<T> = { ok: true; value: T } | { ok: false; response: NextResponse };
 
-export async function runLlm<T>(context: string, work: () => Promise<T>): Promise<LlmOutcome<T>> {
+/** Two full lib/teach/llm.ts attempts' worth of headroom, and no more. */
+export const DEFAULT_LLM_DEADLINE_MS = 180_000;
+
+const DEADLINE = Symbol("llm-deadline");
+
+export async function runLlm<T>(
+  context: string,
+  work: () => Promise<T>,
+  opts?: { deadlineMs?: number },
+): Promise<LlmOutcome<T>> {
+  const deadlineMs = opts?.deadlineMs ?? DEFAULT_LLM_DEADLINE_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
-    return { ok: true, value: await work() };
+    const deadline = new Promise<typeof DEADLINE>((resolve) => {
+      timer = setTimeout(() => resolve(DEADLINE), deadlineMs);
+    });
+
+    const result = await Promise.race([work(), deadline]);
+    if (result === DEADLINE) {
+      console.error(`${context} exceeded its ${deadlineMs}ms deadline.`);
+      return {
+        ok: false,
+        response: NextResponse.json({ error: `${context} timed out.`, kind: "deadline-exceeded" }, { status: 504 }),
+      };
+    }
+    return { ok: true, value: result as T };
   } catch (err) {
     console.error(`${context} failed:`, err);
     const kind = isSarvamError(err) ? err.kind : "unknown";
@@ -23,5 +56,7 @@ export async function runLlm<T>(context: string, work: () => Promise<T>): Promis
       ok: false,
       response: NextResponse.json({ error: `${context} failed.`, kind }, { status: 502 }),
     };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

@@ -16,6 +16,7 @@ import {
 import { adaptAfterIncorrectAnswer } from "@/lib/teach/adapt";
 import { recordVerdictProgress } from "@/lib/teach/assess";
 import { evaluateAnswer } from "@/lib/teach/evaluate";
+import { firstAdaptationSceneOrder } from "@/lib/teach/session";
 import { runLlm } from "../../../llmErrors";
 
 export const runtime = "nodejs";
@@ -137,8 +138,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const answerRow = recordAnswer();
   updateProgress();
 
+  /* Not `max(existing order) + 1`: scripting runs in the background, so the
+   * scenes that exist right now can be a prefix of the lesson, and the slots
+   * above them are already reserved for concepts still being scripted. */
   const existingScenes = getScenesForLessonPlan(plan.id);
-  const nextOrder = existingScenes.length ? Math.max(...existingScenes.map((s) => s.order)) + 1 : 0;
+  const nextOrder = Math.max(
+    firstAdaptationSceneOrder(plan.concepts.length),
+    existingScenes.length ? Math.max(...existingScenes.map((s) => s.order)) + 1 : 0,
+  );
 
   const followUpQuestionRow = createQuestion({
     conceptId: adaptation.targetConceptId,

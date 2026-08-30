@@ -159,8 +159,10 @@ model.
 - **`lib/sarvam/`**: a typed client for chat, TTS, translate, STT — the seam
   every later slice calls through. Generous default `max_tokens`, errors typed
   by `kind` (`SarvamErrorKind` in `lib/sarvam/errors.ts`), one retry with
-  backoff on 429/5xx only — a 200 whose body isn't JSON fails as `invalid-json`
-  rather than being re-POSTed against a request Sarvam already billed — and a
+  backoff on 429/5xx only — a 200 whose body isn't JSON fails as
+  `invalid-response-body` (a distinct kind from `invalid-json`, the model's own
+  output being unparseable) rather than being re-POSTed against a request
+  Sarvam already billed — and a
   `json<T>()` helper that validates structured output with zod and retries once
   with a repair prompt on malformed JSON or a schema mismatch. Verified against
   the real API during this build (reasoning content present, truncation error
@@ -208,7 +210,7 @@ prompt), matching the module names to the loop's steps:
 | Continue (follow-ups) | `ask.ts` | Answers a mid-lesson interruption grounded in the source document/lesson without touching `lesson_sessions.current_scene_order`, so the lesson resumes exactly where it was. Grounding is a small local lexical (term-overlap) scorer over `document_chunks` — see Known limitations below for why, not the RAG slice's embeddings. This does **not** hard-refuse an off-document question: when nothing scores above the relevance floor it says so, then still answers from general knowledge — the anti-hallucination contract is `FollowUpAnswer.grounded` (computed from retrieval results, not the model's own wording), a machine-checkable signal a caller can always trust regardless of how the model phrased the answer. |
 | Continue (assessment) | `assess.ts` | Final quiz drawn from the taught concepts (weighted toward ones missed at checkpoints), then a report. Score/weak-areas/misconceptions-held/concepts-understood are computed **deterministically** from recorded verdicts; the model only phrases `recommendedRevision`/`suggestedNextTopic`, grounded in those computed facts, never inventing a weak area that wasn't measured. |
 | Continue (paths) | `path.ts` | Broad topic ("teach me machine learning") or explicit multi-day request → an ordered `LearningPathStep[]`, first step unlocked, rest locked; `unlockNextStep()` advances it. Each step's own `LessonPlan` is generated lazily by `plan.ts` when the learner actually starts it. |
-| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence, split into a FAST phase and a BACKGROUND phase. `planTaughtLessonSession()` does one planning call (verified live: ~50s for a 3-concept lesson — a single request, not the old design's minutes) and persists `lesson_session`/`lesson_plan`/`concepts` in one transaction. `scriptTaughtLessonSession()` scripts every concept **concurrently** (`Promise.allSettled`, not a sequential loop — the calls are independent; verified live: ~94s to script all 3 concepts, in the background, not blocking the caller) and persists scenes/questions/adaptation-state as each one finishes; a single concept's failure is isolated (recorded in `scripting_error`, that concept just has no scenes) rather than failing the whole lesson. `lesson_sessions.scripting_status` (`pending`→`in_progress`→`ready`\|`partial`\|`failed`) is what a caller polls. This split exists because the old single-call design took 273s in one live-measured run and then failed outright — see the fixes below. |
+| Orchestration | `session.ts` | Wires Plan → Explain/Demonstrate/Question → persistence, split into a FAST phase and a BACKGROUND phase. `planTaughtLessonSession()` does one planning call (verified live: ~50s for a 3-concept lesson — a single request, not the old design's minutes) and persists `lesson_session`/`lesson_plan`/`concepts` in one transaction. `scriptTaughtLessonSession()` scripts concepts **concurrently but pooled** (a bounded 3-at-a-time fan-out, not a sequential loop and not one request per concept all at once — the calls are independent, but each concept is itself two large calls, so a 12-concept plan would otherwise burst 24 requests into a rate limit; verified live: ~94s to script all 3 concepts, in the background, not blocking the caller) and persists scenes/questions/adaptation-state as each one finishes; a single concept's failure is isolated (recorded in `scripting_error`, that concept just has no scenes) rather than failing the whole lesson. `lesson_sessions.scripting_status` (`pending`→`in_progress`→`ready`\|`partial`\|`failed`) is what a caller polls. This split exists because the old single-call design took 273s in one live-measured run and then failed outright — see the fixes below. |
 | Shared | `llm.ts` | Every `lib/teach` structured call goes through this thin wrapper around `lib/sarvam`'s `json()` rather than calling it directly — see the token-budget/timeout note below. |
 
 ### API surface (`app/api/teach/`)
@@ -260,7 +262,13 @@ not spend time on them. The two real levers, both applied here:
    existing one internal repair attempt) specifically for `truncated`/
    `invalid-json`/`invalid-schema` — a safety net for a genuinely malformed
    response, not the primary fix; it does not retry `timeout`/`http`/
-   `network`/`config` errors, where a same-request retry wouldn't help.
+   `network`/`config` errors, where a same-request retry wouldn't help, nor
+   `invalid-response-body`, where the request was already processed and
+   billed. Because retries multiply attempts, the retry is bounded twice:
+   `llm.ts` gives one structured ask a 150s wall-clock budget (it skips the
+   retry, or shortens its timeout, once the budget is nearly spent), and
+   `runLlm()` caps any request-path route at a 180s deadline, answering 504
+   with `kind: "deadline-exceeded"` instead of holding the caller open.
 
 Two smaller fixes, also found live:
 

@@ -9,7 +9,7 @@ import { createLessonPlan } from "../lib/db/accessors/lessonPlans";
 import { createLessonSession, getLessonSession } from "../lib/db/accessors/lessonSessions";
 import { getScenesForLessonPlan } from "../lib/db/accessors/scenes";
 import { getAdaptationState } from "../lib/db/accessors/adaptationState";
-import { planTaughtLessonSession, scriptTaughtLessonSession } from "../lib/teach/session";
+import { firstAdaptationSceneOrder, planTaughtLessonSession, scriptTaughtLessonSession } from "../lib/teach/session";
 import type { Concept, LearnerProfile } from "../lib/types";
 import type { LessonPlanRow, LessonSessionRow } from "../lib/db/types";
 
@@ -162,6 +162,9 @@ describe("scriptTaughtLessonSession", () => {
     const aScenes = scenes.filter((s) => s.conceptId === conceptA.id);
     const bScenes = scenes.filter((s) => s.conceptId === conceptB.id);
     expect(Math.max(...aScenes.map((s) => s.order))).toBeLessThan(Math.min(...bScenes.map((s) => s.order)));
+
+    // Adaptation scenes are minted while scripting may still be in flight, so their first order must clear every slot this plan reserves.
+    expect(firstAdaptationSceneOrder(plan.concepts.length)).toBeGreaterThan(Math.max(...scenes.map((s) => s.order)));
 
     const seeded = getAdaptationState(session.id, conceptA.id);
     expect(seeded?.usedAnalogies).toEqual(["A analogy"]);
