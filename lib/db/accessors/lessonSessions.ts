@@ -81,6 +81,12 @@ export function advanceLessonSessionScene(id: string, currentSceneOrder: number)
   return getLessonSession(id)!;
 }
 
+/** Mid-lesson language switch ("ab hindi mein samjhao") — the session's language changes, scene position and history do not. */
+export function updateLessonSessionLanguage(id: string, language: LanguageCode): LessonSessionRow {
+  getDb().prepare("UPDATE lesson_sessions SET language = ? WHERE id = ?").run(language, id);
+  return getLessonSession(id)!;
+}
+
 export function completeLessonSession(id: string, status: Extract<LessonSessionStatus, "completed" | "abandoned"> = "completed"): LessonSessionRow {
   getDb()
     .prepare("UPDATE lesson_sessions SET status = ?, completed_at = ? WHERE id = ?")

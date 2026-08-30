@@ -179,4 +179,24 @@ export const migrations: Migration[] = [
       CREATE INDEX idx_learning_paths_learner ON learning_paths(learner_profile_id);
     `,
   },
+  {
+    version: 2,
+    name: "concept adaptation state",
+    sql: `
+      -- Per (session, concept) memory of which analogies the teaching engine
+      -- has already spent re-explaining this concept, so adapt.ts never
+      -- reuses one. attempt_count/current_difficulty let adaptation escalate
+      -- (harder question, or drop to a prerequisite) across repeated misses.
+      CREATE TABLE concept_adaptation_state (
+        lesson_session_id    TEXT NOT NULL REFERENCES lesson_sessions(id) ON DELETE CASCADE,
+        concept_id           TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+        used_analogies_json  TEXT NOT NULL DEFAULT '[]',
+        attempt_count        INTEGER NOT NULL DEFAULT 0,
+        current_difficulty   INTEGER NOT NULL DEFAULT 2,
+        updated_at           TEXT NOT NULL,
+        PRIMARY KEY (lesson_session_id, concept_id)
+      );
+      CREATE INDEX idx_concept_adaptation_state_session ON concept_adaptation_state(lesson_session_id);
+    `,
+  },
 ];

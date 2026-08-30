@@ -23,6 +23,16 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
 - Native modules (`better-sqlite3`) need `npm approve-scripts <pkg>` in this
   environment before `npm install` will run their build step — see the
   `allowScripts` block in `package.json`.
+- **`sarvam-105b`'s JSON mode does not infer your schema from prose.**
+  `response_format: json_object` only guarantees valid JSON, not your field
+  names — verified live, a prompt that just *describes* the desired content
+  got plausible-but-wrong keys back. Every structured prompt needs an
+  explicit `"Respond with ONLY a JSON object of exactly this shape: {...}"`
+  block naming every key, and every `lib/teach` call goes through
+  `lib/teach/llm.ts` (not `lib/sarvam` directly) for a raised default
+  `maxTokens`/`timeoutMs` — see `docs/ARCHITECTURE.md`'s "Two real-behaviour
+  fixes" for why. A raw language code like `"en-IN"` alone is also not a
+  reliable instruction; use `lib/teach/profile.ts`'s `languageInstruction()`.
 
 ## Structure
 
@@ -39,6 +49,10 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   `Concept`, `Scene`, `VisualSpec`, `Question`, `AnswerEvaluation`,
   `Misconception`, `AssessmentReport`, `LearningPath`). Every slice codes
   against these; changing a field here is a cross-slice breaking change.
+- `lib/teach/` — the teaching engine: Understand → Plan → Explain/Demonstrate/
+  Question → Evaluate → Adapt → Continue, one module per step, orchestrated
+  by `session.ts` and exposed under `app/api/teach/`. See `docs/ARCHITECTURE.md`'s
+  "The teaching engine" section for the module table and API surface.
 
 ## Testing
 
@@ -47,7 +61,9 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
 `fetch` with `vi.stubGlobal` — when a test calls the mocked endpoint more than
 once, use `mockImplementation` (a fresh `Response` per call) rather than
 `mockResolvedValue` with a single `Response` object, since a `Response` body
-can only be read once.
+can only be read once. `lib/teach` tests use `__tests__/support/sarvamMock.ts`'s
+`stubChatSequence(...payloads)` for the same pattern, one payload per expected
+call in order.
 
 ## Maintaining this file
 
