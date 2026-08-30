@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const formData = await req.formData();
-  const file = formData.get("file");
+  const formData = await req.formData().catch(() => undefined);
+  const file = formData?.get("file");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Expected a multipart form with a 'file' field." }, { status: 400 });
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof DocumentParseError) {
       return NextResponse.json({ error: err.message, kind: err.kind }, { status: 422 });
     }
+    console.error(`Failed to process upload ${file.name}:`, err);
     return NextResponse.json({ error: `Failed to process ${file.name}.` }, { status: 500 });
   }
 }

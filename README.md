@@ -25,7 +25,10 @@ first run.
 
 - `npm run dev` — start the dev server
 - `npm run build` — production build
-- `npm run typecheck` — `tsc --noEmit`
+- `npm run typecheck` — `next typegen && tsc --noEmit`; typegen must run first
+  because Next 15 emits the typed-routes globals (`LayoutProps`, `PageProps`)
+  only after a `next dev`/`build`/`typegen`, so bare `tsc --noEmit` fails on a
+  fresh clone
 - `npm run lint` — ESLint
 - `npm test` — unit tests (vitest)
 
