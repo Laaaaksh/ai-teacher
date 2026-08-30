@@ -179,4 +179,27 @@ export const migrations: Migration[] = [
       CREATE INDEX idx_learning_paths_learner ON learning_paths(learner_profile_id);
     `,
   },
+  {
+    version: 2,
+    name: "video jobs",
+    sql: `
+      -- One row per teaching-video render, tracking a real in-process
+      -- render pipeline (narration -> per-scene frame capture -> ffmpeg
+      -- mux -> concat). progress_percent/stage_detail are updated live so a
+      -- client can poll honest progress rather than a fake spinner.
+      CREATE TABLE video_jobs (
+        id                TEXT PRIMARY KEY,
+        lesson_plan_id    TEXT NOT NULL REFERENCES lesson_plans(id) ON DELETE CASCADE,
+        persona_id        TEXT NOT NULL,
+        status            TEXT NOT NULL CHECK (status IN ('queued','narrating','rendering','muxing','completed','failed')),
+        progress_percent  REAL NOT NULL DEFAULT 0,
+        stage_detail      TEXT,
+        output_path       TEXT,
+        error_message     TEXT,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      );
+      CREATE INDEX idx_video_jobs_lesson_plan ON video_jobs(lesson_plan_id);
+    `,
+  },
 ];

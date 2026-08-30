@@ -14,12 +14,16 @@ Built for the Bharat Academix AI Innovation Hackathon 2026, Round 2.
 ```bash
 npm install
 cp .env.example .env.local   # fill in SARVAM_API_KEY
+npx playwright install chromium   # one-time: teaching-video generation needs a real browser to render into
 npm run dev
 ```
 
-Requires Node 20+. No database server, vector DB, or other paid API is needed —
-SQLite lives on disk at `data/ai-teacher.sqlite` and is created automatically on
-first run.
+Requires Node 20+, and `ffmpeg` on `PATH` (used as a subprocess to mux teaching
+videos — `brew install ffmpeg` / `apt install ffmpeg`). No database server,
+vector DB, or other paid API is needed — SQLite lives on disk at
+`data/ai-teacher.sqlite` and is created automatically on first run. See
+`docs/VIDEO.md` for why the video-generation slice needs Playwright's browser
+downloaded separately from `npm install`.
 
 ## Scripts
 
@@ -37,6 +41,8 @@ No CI workflow is wired up yet (why: Known limitations in
 and `npm run build` locally before pushing.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
-schema. This repository is built up in slices; this foundation slice provides the
-app scaffold, the Sarvam client, document ingestion, persistence and shared types
-that later slices (lesson planning, the lesson player, video generation) build on.
+schema, and `docs/VIDEO.md` for the teaching-video generation pipeline
+(narration, subject-aware visuals, the avatar, composition, encoding). This
+repository is built up in slices; the foundation slice provides the app
+scaffold, the Sarvam client, document ingestion, persistence and shared types
+that other slices (lesson planning, the lesson player, video generation) build on.
