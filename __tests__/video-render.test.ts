@@ -120,4 +120,68 @@ describe("renderLessonVideo (real Chromium + real ffmpeg, mocked Sarvam network)
     expect(video?.pix_fmt).toBe("yuv420p");
     expect(audio).toBeDefined();
   }, 60_000);
+
+  /**
+   * A scene's composed page carries its position in the WHOLE plan ("Scene 2 /
+   * 3"), so rendering it alone must compose — and therefore cache — byte for
+   * byte the same as rendering it inside the full lesson. If the position were
+   * taken from the rendered subset instead, the segment render would burn in
+   * "Scene 1 / 1" and miss the cache.
+   */
+  it("composes a scene identically whether rendered alone or as part of the whole plan", async () => {
+    const { resetDbForTests } = await import("../lib/db/connection");
+    resetDbForTests();
+    const { createLearnerProfile, createLessonSession, createLessonPlan, createScenes } = await import("../lib/db");
+    const { renderLessonVideo } = await import("../lib/video/render");
+
+    const profile = createLearnerProfile({
+      name: "Test",
+      level: "beginner",
+      priorKnowledge: "",
+      goal: "",
+      style: "",
+      language: "en-IN",
+      minutesAvailable: 5,
+      depth: "overview",
+    });
+    const session = createLessonSession({ learnerProfileId: profile.id, topic: "Test Topic", language: "en-IN", totalMinutes: 5, depth: "overview" });
+    const conceptId = randomUUID();
+    const plan = createLessonPlan({
+      lessonSessionId: session.id,
+      learnerProfileId: profile.id,
+      topic: "Test Topic",
+      language: "en-IN",
+      totalMinutes: 5,
+      depth: "overview",
+      concepts: [
+        {
+          id: conceptId,
+          title: "A Simple Equation",
+          summary: "",
+          subject: "mathematics",
+          difficulty: 1,
+          prerequisiteConceptIds: [],
+          timeBudgetSeconds: 10,
+          citations: [],
+          visual: { kind: "equation", renderer: "katex", rationale: "test", content: "x + 1 = 2" },
+        },
+      ],
+    });
+    const scenes = createScenes([
+      { lessonPlanId: plan.id, conceptId, type: "introduction", order: 0, narration: "First scene.", estimatedSeconds: 2 },
+      { lessonPlanId: plan.id, conceptId, type: "explanation", order: 1, narration: "Second scene.", estimatedSeconds: 2 },
+    ]);
+
+    const { sceneCacheDir } = await import("../lib/video/paths");
+    await renderLessonVideo(plan.id, path.join(process.env.VIDEO_CACHE_DIR!, "full.mp4"), { fps: 4 });
+    const afterFullRender = fs.readdirSync(sceneCacheDir()).sort();
+
+    await renderLessonVideo(plan.id, path.join(process.env.VIDEO_CACHE_DIR!, "segment.mp4"), {
+      fps: 4,
+      sceneIds: [scenes[1].id],
+      skipTitleCard: true,
+    });
+
+    expect(fs.readdirSync(sceneCacheDir()).sort()).toEqual(afterFullRender);
+  }, 90_000);
 });

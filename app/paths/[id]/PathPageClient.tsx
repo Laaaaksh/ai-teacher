@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getStoredLearnerProfileId } from "@/lib/client/learner";
+import { clearStoredLearnerProfileId, getStoredLearnerProfileId } from "@/lib/client/learner";
 
 interface LearningPathStep {
   id: string;
@@ -47,8 +47,18 @@ export function PathPageClient({ pathId }: { pathId: string }) {
     setStarting(step.id);
     setError(null);
     try {
-      const learnerProfileId = getStoredLearnerProfileId() ?? path.learnerProfileId;
-      const profileRes = await fetch(`/api/profile/${learnerProfileId}`);
+      const storedId = getStoredLearnerProfileId();
+      let learnerProfileId = storedId ?? path.learnerProfileId;
+      let profileRes = await fetch(`/api/profile/${learnerProfileId}`);
+      /* A remembered id whose row is gone (local DB reset) must not dead-end a
+       * step the path's own profile can still start. */
+      if (profileRes.status === 404 && storedId) {
+        clearStoredLearnerProfileId();
+        if (storedId !== path.learnerProfileId) {
+          learnerProfileId = path.learnerProfileId;
+          profileRes = await fetch(`/api/profile/${learnerProfileId}`);
+        }
+      }
       const profileData = await profileRes.json();
       if (!profileRes.ok) throw new Error(profileData.error ?? "Couldn't load your profile.");
       const profile = profileData.profile;

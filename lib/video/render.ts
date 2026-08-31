@@ -197,8 +197,8 @@ export async function renderLessonVideo(lessonPlanId: string, outputPath: string
           sceneType: scene.type,
           conceptTitle: concept?.title ?? plan.topic,
           lessonTopic: plan.topic,
-          sceneIndex: i,
-          totalScenes: narrations.length,
+          sceneIndex: allScenes.findIndex((s) => s.id === scene.id),
+          totalScenes: allScenes.length,
           visual: rendered,
           onScreenText: scene.narration,
         });
