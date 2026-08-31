@@ -106,7 +106,7 @@ slice that hasn't matched this contract exactly still renders *something*.
 | `plotter` | graph | `{ "fn": "x^2", "xMin": -5, "xMax": 5, "samples": 60 }` (evaluated with the safe expression parser in `visuals/expr.ts` — never `eval`/`Function`) and/or `{ "series": [{ "label": "...", "points": [[x,y], ...] }], "kind": "line"\|"bar"\|"scatter" }` |
 | `svg` | labelled-diagram | `{ "title"?: "...", "shape"?: "blob"\|"rect"\|"circle"\|"none", "labels": [{ "text": "...", "x": 0-100, "y": 0-100 }] }` |
 | `html` | bullets, comparison-table, concept-map | bullets: JSON `string[]` or newline-separated text. comparison-table: `{ "headers": string[], "rows": string[][] }` |
-| `image` | image | a `data:image/...` or `http(s)://` URL — there is no image-generation credential, so this only ever displays material the lesson actually cites (e.g. an image lifted from a parsed slide) |
+| `image` | image | a `data:image/...` or `http(s)://` URL. **Unreachable in this branch**: no `SUBJECT_VISUAL_RULES` entry in `lib/teach/script.ts` ever selects `renderer: "image"`, and no parser in `lib/documents/` extracts images from an upload, so nothing currently produces a spec that reaches this renderer |
 
 Progressive reveal (`lib/video/visuals/types.ts`'s `RevealMode`) is generic
 across renderers, driven by `compose.ts`'s frame script, not per-renderer
@@ -161,8 +161,11 @@ by the API.
 - **No real illustrative art.** Labelled diagrams (`visuals/labelledDiagram.ts`)
   are a generic geometric schematic (blob/rect/circle + leader lines), not
   anatomically/scientifically accurate artwork — there is no image-generation
-  credential. The `image` renderer only ever displays material actually
-  supplied in `VisualSpec.content` (e.g. lifted from a parsed slide).
+  credential. The `image` renderer's `VisualSpec.content` contract exists in
+  the code but no current path reaches it: no `SUBJECT_VISUAL_RULES` entry
+  selects `renderer: "image"` and no document parser extracts images from an
+  upload, so no imagery — uploaded or generated — appears in a rendered
+  lesson today.
 - **Mermaid diagrams reveal as a single entrance, not node-by-node** — see
   the `RevealMode` table above.
 - **Single-process job queue** (`lib/video/jobs.ts`): a render job is an

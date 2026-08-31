@@ -111,14 +111,17 @@ functions/line graphs); `"fade"` fades the whole visual in once (Mermaid
 diagrams, images — their internal SVG shape varies too much per diagram type
 for reliable node-by-node staggering).
 
-Every renderer parses the model's visual content **defensively** — a
-malformed KaTeX/Mermaid/code payload degrades to a visible red error
-(KaTeX's own inline parse-error text, or `mermaid.ts`'s own
-`"Diagram could not be rendered: ..."`) rather than throwing and breaking
-the render. This is not a hypothetical: it was caught happening on 2 of 18
-scenes in this documentation's own real render — see
-[16 — Known limitations](16-known-limitations.md) for the exact scenes,
-the exact malformed content, and the fix that would close it.
+Every renderer parses the model's visual content **defensively**: a
+malformed payload degrades to a visible on-screen error rather than throwing
+and breaking the render. Each renderer has its own fallback — KaTeX emits
+its inline parse-error text, `mermaid.ts` emits
+`"Diagram could not be rendered: ..."`, and so on.
+
+This is not a hypothetical: malformed content was caught on 2 of 18 scenes
+in this documentation's own real render.
+[16 — Known limitations](16-known-limitations.md#video-generation) has the
+case-by-case breakdown — which scenes, which renderer's fallback each one
+actually hit, the exact malformed content, and the fix that would close it.
 
 ## The avatar
 
