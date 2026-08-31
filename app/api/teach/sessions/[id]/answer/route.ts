@@ -201,7 +201,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       targetConceptId: adaptation.targetConceptId,
       droppedToPrerequisite: adaptation.droppedToPrerequisite,
       reExplanationScene: reExplanationSceneRow,
-      followUpQuestion: followUpQuestionRow,
+      // Never referenceAnswer — this question hasn't been asked yet.
+      followUpQuestion: {
+        id: followUpQuestionRow.id,
+        conceptId: followUpQuestionRow.conceptId,
+        sceneId: followUpQuestionRow.sceneId,
+        type: followUpQuestionRow.type,
+        prompt: followUpQuestionRow.prompt,
+        options: followUpQuestionRow.options,
+        difficulty: followUpQuestionRow.difficulty,
+      },
       checkpointScene: checkpointSceneRow,
     },
   });
