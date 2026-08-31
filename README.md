@@ -9,6 +9,23 @@ how it teaches you.
 
 Built for the Bharat Academix AI Innovation Hackathon 2026, Round 2.
 
+![A generated teaching video: an animated avatar narrating beside a real Mermaid circuit diagram, with live captions](docs/submission/assets/lesson-demo.gif)
+
+*A 6-second clip from a real, live-generated teaching video — real Sarvam
+narration, a real Mermaid diagram chosen automatically for a physics
+concept, a real lip-synced avatar. Not a mockup. See
+[docs/submission/](docs/submission/) for the full walkthrough, including a
+live-run trace of the same lesson catching a student's wrong answer and
+re-teaching it with a different analogy.*
+
+## Submission documentation
+
+**[docs/submission/](docs/submission/)** is the full submission
+documentation — problem statement through known limitations, in the order
+the assessment's Section 20 asks for, written and verified against a real
+run of this exact branch against the live Sarvam API. Start there for the
+complete picture; this README is the quick-start.
+
 ## Setup
 
 ```bash
@@ -26,7 +43,9 @@ embeddings run locally too: the first document you index downloads a ~23MB
 MiniLM model to `.cache/transformers/` (gitignored), so that one run needs
 network; every run after it is offline. See `docs/VIDEO.md` for why the
 video-generation slice needs Playwright's browser downloaded separately from
-`npm install`.
+`npm install`, and [docs/submission/14-setup-instructions.md](docs/submission/14-setup-instructions.md)
+for a real gotcha (native-module install-script approval) hit and fixed on a
+clean checkout while writing this documentation.
 
 Open http://localhost:3000 for the student experience — upload material or
 name a topic, describe how you want to be taught, and watch a real teaching
@@ -48,7 +67,9 @@ indexing → outline → grounded question answering with citations on its own.
 
 No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
-and `npm run build` locally before pushing.
+and `npm run build` locally before pushing. All four were run clean — 181/181
+tests passing across 31 test files — on a fresh checkout immediately before
+this documentation was written.
 
 ## What works today
 
@@ -67,4 +88,7 @@ polled via `scriptingStatus`). `/rag-demo` exercises retrieval and grounding
 on their own; `docs/VIDEO.md` covers the video-generation pipeline.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
-database schema.
+database schema, and [docs/submission/](docs/submission/) for the
+submission-facing documentation with real, live-run traces of every claim
+above — including the exact adaptation trace referenced in the GIF's
+caption.

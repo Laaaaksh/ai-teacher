@@ -74,9 +74,11 @@ export function renderComparisonTableVisual(content: string, caption?: string): 
 
 /**
  * Content contract for kind "image" (renderer "image"): a `data:image/...`
- * or `http(s)://` URL — e.g. an image lifted from a parsed PPTX/PDF slide by
- * the RAG/documents slice. There is no image-generation credential, so this
- * renderer only ever displays material the lesson actually cites.
+ * or `http(s)://` URL. Nothing reaches this renderer today — no
+ * SUBJECT_VISUAL_RULES entry selects it and no lib/documents parser extracts
+ * images from an upload — and there is no image-generation credential, so it
+ * stays a display-only path for material a lesson actually cites (see
+ * docs/VIDEO.md's known limitations).
  */
 export function renderImageVisual(content: string, caption?: string): RenderedVisual {
   const isUsable = content.startsWith("data:image") || content.startsWith("http://") || content.startsWith("https://");

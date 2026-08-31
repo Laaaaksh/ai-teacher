@@ -3,6 +3,11 @@
 Read `docs/ARCHITECTURE.md` first — it is the settled architecture (credentials,
 verified Sarvam endpoint contracts and gotchas, the teaching loop, what's judged)
 and takes precedence over anything below. `docs/SCHEMA.md` documents the database.
+`docs/submission/` is the jury-facing submission documentation (problem statement
+through known limitations, per the assessment's Section 20) — written for an
+external reader, not a contributor, so prefer `docs/ARCHITECTURE.md`/`docs/SCHEMA.md`/
+`docs/VIDEO.md` as the engineering source of truth and treat `docs/submission/`
+as downstream of them, not the other way around.
 
 ## Non-obvious setup facts
 
@@ -27,7 +32,13 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   `@xenova/transformers`, without which `lib/rag/embed.ts` throws at module
   load) need `npm approve-scripts <pkg>` in this environment before `npm
   install` will run their build step — see the `allowScripts` block in
-  `package.json`.
+  `package.json`. Run it once per package, not once for the whole pending
+  list: `npm approve-scripts <pkg>` rewrites `package.json`'s `allowScripts`
+  block to contain *only* the package just approved, silently dropping every
+  other entry that was there — verified live on a clean checkout. If `git
+  diff package.json` shows the block shrank afterward, `git checkout --
+  package.json` restores it (the native modules stay built; only the
+  tracking file needs restoring).
 - `lib/rag/embed.ts`'s embedding model (`Xenova/all-MiniLM-L6-v2`) downloads
   once to `.cache/transformers/` (gitignored, ~23MB) on first use — needs
   network the very first time; every run after that is offline.
