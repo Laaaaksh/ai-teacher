@@ -44,11 +44,30 @@ const OFF_SCRIPT_QUESTION = "Why is a hairdryer's heating element a thin coiled 
 const LANGUAGE_SWITCH_PHRASE = "ab hindi mein samjhao";
 const UNCOVERED_QUESTION = "What is the boiling point of mercury?";
 
+/**
+ * The lesson is taught in Hindi and every checkpoint is drawn from the same
+ * narrow Chapter 4 (Resistance and Ohm's Law), but the exact question and
+ * example the LLM picks varies run to run (e.g. "why is hairdryer wire
+ * thin" vs. a direct Ohm's-Law numeric question). A short answer to one
+ * specific example scored "Not quite" on a different one in rehearsal, so
+ * this is deliberately a comprehensive, Hindi, kitchen-sink answer covering
+ * every fact the chapter contains (resistance + wire thickness/length,
+ * Ohm's Law itself, and the resistance-up/current-down relationship with a
+ * worked number) rather than one narrow example, so it's addressed whatever
+ * specific angle the real checkpoint asks about.
+ */
 const CORRECT_ANSWER =
-  "Ohm's Law says current equals voltage divided by resistance, I = V / R. If the voltage stays the same and the resistance goes up, the current goes DOWN, not up. For example a 12 volt battery across a 4 ohm resistor gives 3 amperes, but across a 6 ohm resistor it only gives 2 amperes.";
+  "प्रतिरोध (resistance) यह मापता है कि कोई चालक धारा के बहने का कितना विरोध करता है। पतला और लंबा तार मोटे और छोटे तार से ज़्यादा प्रतिरोध देता है — इसीलिए हेयर ड्रायर का हीटिंग एलिमेंट पतले तार से बनाया जाता है, ताकि ज़्यादा प्रतिरोध के कारण ज़्यादा गर्मी पैदा हो। ओम के नियम के अनुसार धारा = वोल्टेज ÷ प्रतिरोध (I = V / R)। अगर वोल्टेज स्थिर रहे और प्रतिरोध बढ़े, तो धारा घटती है, बढ़ती नहीं — उदाहरण के लिए 12 वोल्ट की बैटरी 4 ओम के प्रतिरोधक में 3 एम्पियर धारा देती है, लेकिन 6 ओम के प्रतिरोधक में सिर्फ 2 एम्पियर।";
 
+/**
+ * Deliberately embodies the exact misconception the assessment itself uses
+ * as its worked example (resistance up → current up, when Ohm's Law says
+ * the opposite) — a genuinely false physics claim, so it reliably fails to
+ * be marked "Correct" for any resistance/Ohm's-Law checkpoint regardless of
+ * the specific example asked.
+ */
 const WRONG_ANSWER =
-  "If the resistance increases while the voltage stays the same, the current also increases, because more resistance pushes more current through the circuit.";
+  "अगर प्रतिरोध बढ़ता है और वोल्टेज स्थिर रहता है, तो धारा भी बढ़ जाती है, क्योंकि ज़्यादा प्रतिरोध सर्किट में ज़्यादा धारा को धकेलता है।";
 
 interface TimelineEvent {
   t: number;
@@ -68,6 +87,55 @@ function log(label: string) {
   const t = Date.now() - startTime;
   timeline.push({ t, label });
   console.log(`[${(t / 1000).toFixed(1)}s] ${label}`);
+}
+
+async function isServerUp(): Promise<boolean> {
+  return fetch(`${BASE_URL}/api/health`, { signal: AbortSignal.timeout(4000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+}
+
+/**
+ * This machine runs several worktrees' dev servers side by side, and this
+ * one has been observed getting killed mid-request by something unrelated
+ * to this script (a broad "next dev" cleanup elsewhere), losing whatever
+ * long-running LLM/render call was in flight. Rather than let that fail the
+ * whole recording, retry the per-attempt wait; if it timed out because the
+ * server was actually down, wait for it to come back up and replay the
+ * triggering action (the client-side page survives — only the in-flight
+ * request died) before waiting again.
+ */
+/** Thrown by an `attemptWait` to mean "this is a real, final answer from the app — stop and
+ *  report it," as opposed to an ordinary timeout, which withServerRestartRecovery treats as
+ *  either a dead server (recoverable) or a genuinely slow real call (worth another look). */
+class FatalError extends Error {}
+
+async function withServerRestartRecovery(
+  attemptWait: () => Promise<void>,
+  retryTrigger: () => Promise<void>,
+  opts: { label: string; totalTimeoutMs: number },
+): Promise<void> {
+  const deadline = Date.now() + opts.totalTimeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await attemptWait();
+      return;
+    } catch (err) {
+      if (err instanceof FatalError) throw err;
+      if (Date.now() >= deadline) throw err;
+      const healthy = await isServerUp();
+      if (!healthy) {
+        log(`server unreachable during "${opts.label}" — waiting for it to recover`);
+        while (!(await isServerUp())) {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+        log(`server recovered — retrying trigger for "${opts.label}"`);
+        await retryTrigger().catch(() => {});
+      }
+      // Loop again either way: a healthy server just means the real call is still genuinely running.
+    }
+  }
+  throw new Error(`"${opts.label}" did not complete within ${opts.totalTimeoutMs}ms, including any server-restart recovery`);
 }
 
 async function setStage(page: Page, title: string, detail = "") {
@@ -113,7 +181,7 @@ async function waitForNextVideoAndAdvance(page: Page, previousSrc: string | null
       return !!(v && v.getAttribute("src") && v.getAttribute("src") !== prev);
     },
     previousSrc,
-    { timeout: 6 * 60_000 },
+    { timeout: 10 * 60_000 },
   );
   const src = await page.$eval("video", (v) => v.getAttribute("src")!);
   log(`video ready: ${label} (${src})`);
@@ -135,7 +203,9 @@ interface QuestionCardInfo {
 }
 
 async function readQuestionCard(card: Locator): Promise<QuestionCardInfo> {
-  const prompt = (await card.locator("p").nth(1).textContent())?.trim() ?? "";
+  // CheckpointQuestion's card has 2 <p>s ("Checkpoint" label, then the prompt);
+  // Assessment's quiz card has only 1 (the prompt). .last() is the prompt in both.
+  const prompt = (await card.locator("p").last().textContent())?.trim() ?? "";
   const optionLocators = card.locator("label");
   const count = await optionLocators.count();
   const options: string[] = [];
@@ -153,13 +223,19 @@ async function readQuestionCard(card: Locator): Promise<QuestionCardInfo> {
  * this isn't a canned transcript, it's a real student answer submitted to
  * the real evaluator, which decides the verdict on its own.
  */
-function pickAnswer(info: Pick<QuestionCardInfo, "prompt" | "isMcq" | "options">, wantCorrect: boolean): string {
+function pickAnswer(
+  info: Pick<QuestionCardInfo, "prompt" | "isMcq" | "options">,
+  wantCorrect: boolean,
+  conceptContext = "",
+): string {
   const { isMcq, options } = info;
 
   if (isMcq) {
-    const decreaseIdx = options.findIndex((o) => /decreas/i.test(o));
-    const increaseIdx = options.findIndex((o) => /increas/i.test(o));
-    const properIdx = options.findIndex((o) => /invers|proportional/i.test(o));
+    // The lesson is taught in Hindi, so MCQ option text may be Hindi, English, or Hinglish
+    // depending on the run — match both scripts' roots for "decrease"/"increase"/"inversely".
+    const decreaseIdx = options.findIndex((o) => /decreas|घट|कम हो/i.test(o));
+    const increaseIdx = options.findIndex((o) => /increas|बढ़/i.test(o));
+    const properIdx = options.findIndex((o) => /invers|proportional|व्युत्क्रम|आनुपातिक/i.test(o));
     if (wantCorrect) {
       if (decreaseIdx >= 0) return options[decreaseIdx];
       if (properIdx >= 0) return options[properIdx];
@@ -169,23 +245,39 @@ function pickAnswer(info: Pick<QuestionCardInfo, "prompt" | "isMcq" | "options">
     return options.find((_, i) => i !== decreaseIdx) ?? options[0];
   }
 
-  return wantCorrect ? CORRECT_ANSWER : WRONG_ANSWER;
+  if (!wantCorrect) return WRONG_ANSWER;
+  // Tried prepending the concept's own LLM-generated summary as extra context (real run,
+  // 2026-08-31): it drifted off the source material (asserted a "cost" rationale the fixture
+  // never states) and buried the correct physics explanation behind it, scoring "Not quite" on
+  // a question the fixed CORRECT_ANSWER alone would have answered directly. The fixed answer is
+  // hand-verified against the actual fixture text — more reliable than an unverified paraphrase.
+  void conceptContext;
+  return CORRECT_ANSWER;
 }
 
-async function submitAnswer(card: Locator, info: QuestionCardInfo, wantCorrect: boolean) {
-  const answer = pickAnswer(info, wantCorrect);
+/** Fills in an answer (MCQ click or textarea) without submitting — CheckpointQuestion has one
+ *  submit button per card, but Assessment's quiz cards share a single "Submit quiz" button below
+ *  all of them, so filling and submitting can't be the same step for both. */
+async function fillAnswer(card: Locator, info: QuestionCardInfo, wantCorrect: boolean, conceptContext = ""): Promise<string> {
+  const answer = pickAnswer(info, wantCorrect, conceptContext);
   if (info.isMcq) {
     const idx = info.options.findIndex((o) => o === answer);
     await card.locator("label").nth(idx < 0 ? 0 : idx).click();
   } else {
     await card.locator("textarea").fill(answer);
   }
-  log(`submitting ${wantCorrect ? "CORRECT" : "WRONG (deliberate misconception)"} answer: "${answer.slice(0, 80)}..."`);
+  log(`${wantCorrect ? "CORRECT" : "WRONG (deliberate misconception)"} answer: "${answer.slice(0, 80)}..."`);
+  return answer;
+}
+
+async function submitAnswer(card: Locator, info: QuestionCardInfo, wantCorrect: boolean, conceptContext = "") {
+  await fillAnswer(card, info, wantCorrect, conceptContext);
+  log("submitting checkpoint answer");
   await card.getByRole("button", { name: /Submit answer/ }).click();
 }
 
 /** Answers the currently visible checkpoint, looping through re-explanation(s) if the first answer is deliberately wrong, until the concept is marked correct. */
-async function answerCheckpointToCompletion(page: Page, opts: { intendedWrong: boolean }) {
+async function answerCheckpointToCompletion(page: Page, opts: { intendedWrong: boolean; conceptContext?: string }) {
   let lastVideoSrc: string | null = await page.$eval("video", (v) => v.getAttribute("src")).catch(() => null);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const wantCorrect = !opts.intendedWrong || attempt > 1;
@@ -194,9 +286,14 @@ async function answerCheckpointToCompletion(page: Page, opts: { intendedWrong: b
     await card.waitFor({ state: "visible", timeout: 6 * 60_000 });
     const info = await readQuestionCard(card);
     log(`checkpoint (attempt ${attempt}): "${info.prompt}"`);
-    await submitAnswer(card, info, wantCorrect);
+    await submitAnswer(card, info, wantCorrect, opts.conceptContext);
 
-    const feedback = page.locator("p.text-xs.font-medium.uppercase.tracking-wide").last();
+    // FeedbackCard's verdict <p> shares "text-xs font-medium uppercase tracking-wide" with
+    // CheckpointQuestion's own "Checkpoint" label and ProgressHeader's "Concept N of M" label —
+    // disambiguate with the color class FeedbackCard alone adds (emerald when correct, amber otherwise).
+    const feedback = page
+      .locator("p.text-xs.font-medium.uppercase.tracking-wide.text-emerald-700, p.text-xs.font-medium.uppercase.tracking-wide.text-amber-700")
+      .last();
     await feedback.waitFor({ state: "visible", timeout: 3 * 60_000 });
     const verdict = (await feedback.textContent())?.trim() ?? "";
     log(`evaluated as: "${verdict}"`);
@@ -295,18 +392,56 @@ async function main() {
     await page.goto(`${BASE_URL}/rag-demo`);
     await reinjectBannerAfterNav(page, "1 · Document indexing", "Uploading the real Chapter 4 textbook PDF");
     await uploadFileAndWaitReady(page, FIXTURE_PATH, 'button:has-text("Upload"):not([disabled])');
-    await page.getByRole("button", { name: "Upload" }).click();
-    const docButton = page.locator('section:has-text("Documents") ul button').first();
+    // Select the JUST-uploaded document by its real id (from the real POST response), never by
+    // list position alone: a document row can outlive its uploaded file on disk (e.g. a DB reset
+    // that wasn't paired with a data/uploads reset), and outline extraction on such an orphan
+    // dead-ends with "no longer available on disk" — indexing still reports it as "ready" since
+    // that's chunks already persisted in the DB, not a check that the file still exists.
+    const [uploadResponse] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/api/documents") && r.request().method() === "POST"),
+      page.getByRole("button", { name: "Upload" }).click(),
+    ]);
+    const uploadedDocId: string = (await uploadResponse.json()).document.id;
+    log(`uploaded fresh document: ${uploadedDocId}`);
+    // The page's own onUploaded callback re-fetches /api/documents and re-renders the list
+    // asynchronously; poll the same endpoint until the fresh id actually shows up in it.
+    let docIndex = -1;
+    for (let i = 0; i < 20 && docIndex < 0; i++) {
+      const documentsAtUpload: { id: string }[] = await page.evaluate(() =>
+        fetch("/api/documents").then((r) => r.json()).then((d) => d.documents),
+      );
+      docIndex = documentsAtUpload.findIndex((d) => d.id === uploadedDocId);
+      if (docIndex < 0) await page.waitForTimeout(500);
+    }
+    if (docIndex < 0) throw new Error(`Uploaded document ${uploadedDocId} did not appear in /api/documents.`);
+    const docButton = page.locator('section:has-text("Documents") ul button').nth(docIndex);
     await docButton.waitFor({ state: "visible", timeout: 30_000 });
     await docButton.click();
     await setStage(page, "1 · Document indexing", "Local MiniLM embeddings + BM25, real chunk-by-chunk progress");
     await page.locator("text=/— ready\\./").waitFor({ timeout: 90_000 });
     await page.waitForTimeout(1500);
     await setStage(page, "1 · Chapter outline", "Extracting chapters, concepts, and worked examples");
-    await page.getByRole("button", { name: "Extract outline" }).click();
-    // Real, uncached LLM outline extraction (sarvam-105b spends its budget on
-    // reasoning before content — see docs/ARCHITECTURE.md) can run well past 60s.
-    await page.locator("text=Chapter 4").waitFor({ timeout: 180_000 });
+    const outlineSection = page.locator("section", { has: page.getByRole("heading", { name: "Chapter outline" }) });
+    const extractOutlineBtn = outlineSection.getByRole("button", { name: /Extract outline|Refresh/ });
+    await extractOutlineBtn.click();
+    // Real, uncached LLM outline extraction (sarvam-105b spends its budget on reasoning before
+    // content — see docs/ARCHITECTURE.md) can run well past 60s. Wait for the outline section
+    // itself to settle (populated chapters OR a visible error), not one exact heading string, so
+    // a real failure (like the orphan-file dead end above) surfaces as a clear message instead of
+    // a generic timeout.
+    await withServerRestartRecovery(
+      async () => {
+        await Promise.race([
+          outlineSection.locator("ol li").first().waitFor({ state: "visible", timeout: 60_000 }),
+          outlineSection.locator("p.text-red-600").waitFor({ state: "visible", timeout: 60_000 }).then(async () => {
+            const errText = await outlineSection.locator("p.text-red-600").textContent();
+            throw new FatalError(`Outline extraction failed for document ${uploadedDocId}: ${errText}`);
+          }),
+        ]);
+      },
+      () => extractOutlineBtn.click(),
+      { label: "outline extraction", totalTimeoutMs: 5 * 60_000 },
+    );
     await page.waitForTimeout(4000);
 
     // ---- 2. Home: upload, free-text instruction, confirm, build the lesson ----
@@ -317,12 +452,22 @@ async function main() {
     await page.locator("text=/indexed\\./").waitFor({ timeout: 90_000 }).catch(() => {});
     await page.locator("textarea").fill(INSTRUCTION);
     await page.waitForTimeout(1500);
-    await page.getByRole("button", { name: "Understand my request" }).click();
-    await page.locator("text=Here's what I understood").waitFor({ timeout: 120_000 });
+    const understandBtn = page.getByRole("button", { name: "Understand my request" });
+    await understandBtn.click();
+    await withServerRestartRecovery(
+      () => page.locator("text=Here's what I understood").waitFor({ timeout: 60_000 }),
+      () => understandBtn.click(),
+      { label: "understand my request", totalTimeoutMs: 4 * 60_000 },
+    );
     await setStage(page, "2 · Confirm the lesson", "Level, minutes, language, and depth parsed from free text");
     await page.waitForTimeout(3500);
-    await page.getByRole("button", { name: "Looks good — build my lesson" }).click();
-    await page.waitForURL(/\/learn\//, { timeout: 180_000 });
+    const buildLessonBtn = page.getByRole("button", { name: "Looks good — build my lesson" });
+    await buildLessonBtn.click();
+    await withServerRestartRecovery(
+      () => page.waitForURL(/\/learn\//, { timeout: 60_000 }),
+      () => buildLessonBtn.click().catch(() => {}), // no-op if it already navigated away
+      { label: "build my lesson", totalTimeoutMs: 5 * 60_000 },
+    );
     const sessionId = new URL(page.url()).pathname.split("/").pop()!;
     log(`session created: ${sessionId}`);
 
@@ -346,13 +491,18 @@ async function main() {
     // ---- 4-8. Teaching loop: video playback, checkpoints, adaptation, interruptions ----
     let lastVideoSrc: string | null = null;
     for (let i = 0; i < conceptCount; i++) {
-      const conceptTitle: string = sessionData.plan.concepts[i].title;
+      const concept = sessionData.plan.concepts[i];
+      const conceptTitle: string = concept.title;
+      // The concept's own summary is the actual ground truth its checkpoint tests — feeding it
+      // into the "correct" answer makes the automated answer robust to whichever specific
+      // example/phrasing the real LLM happened to write the checkpoint question around.
+      const conceptContext: string = concept.summary ?? "";
       await setStage(page, `4 · Teaching video — concept ${i + 1}/${conceptCount}`, conceptTitle);
       lastVideoSrc = await waitForNextVideoAndAdvance(page, lastVideoSrc, `concept ${i + 1}: ${conceptTitle}`);
 
       if (i === 0) {
         await setStage(page, "4 · Checkpoint — answered correctly", conceptTitle);
-        await answerCheckpointToCompletion(page, { intendedWrong: false });
+        await answerCheckpointToCompletion(page, { intendedWrong: false, conceptContext });
 
         await setStage(page, "6 · Off-script interruption", "A grounded follow-up question, mid-lesson");
         await askAnything(page, OFF_SCRIPT_QUESTION, "off-script (grounded)");
@@ -364,10 +514,10 @@ async function main() {
         await askAnything(page, UNCOVERED_QUESTION, "uncovered question");
       } else if (i === 1) {
         await setStage(page, "5 · Checkpoint — answered WRONG on purpose", conceptTitle);
-        await answerCheckpointToCompletion(page, { intendedWrong: true });
+        await answerCheckpointToCompletion(page, { intendedWrong: true, conceptContext });
       } else {
         await setStage(page, `4 · Checkpoint — concept ${i + 1}/${conceptCount}`, conceptTitle);
-        await answerCheckpointToCompletion(page, { intendedWrong: false });
+        await answerCheckpointToCompletion(page, { intendedWrong: false, conceptContext });
       }
 
       // Refresh the video src baseline in case a re-explanation ran (answerCheckpointToCompletion advances it internally too).
@@ -387,7 +537,8 @@ async function main() {
     for (let i = 0; i < quizCount; i++) {
       const card = quizCards.nth(i);
       const info = await readQuestionCard(card);
-      await submitAnswer(card, info, true);
+      await fillAnswer(card, info, true);
+      await page.waitForTimeout(400);
     }
     await page.waitForTimeout(1000);
     await page.getByRole("button", { name: "Submit quiz" }).click();

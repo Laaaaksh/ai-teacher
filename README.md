@@ -1,5 +1,11 @@
 # AI Teacher
 
+![The adaptation moment: a wrong answer named as a specific misconception, then re-explained](docs/assets/demo.gif)
+
+**[Full demo video](docs/assets/demo.mp4)** (~8.6 min) — real running app, real Sarvam
+API, real generated teaching video. Rough edges honestly noted in
+[`scripts/record-demo/README.md`](scripts/record-demo/README.md).
+
 A human-like AI educator that teaches through video.
 
 Upload a textbook, PDF, notes or slides — or just name a topic — and the AI Teacher
