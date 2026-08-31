@@ -71,6 +71,7 @@ const BASE_CSS = `
   .plot-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 13px; justify-content: center; }
   .plot-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
   .visual-diagram-error, .visual-plot-error { color: #f2994a; font-size: 15px; padding: 20px; text-align: center; }
+  .visual-fallback-text { color: #f1f3f6; font-size: 22px; line-height: 1.45; max-width: 640px; padding: 20px; text-align: center; }
   .title-card-wrap { display: flex; flex-direction: column; height: 100%; }
   .title-card { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 18px; min-height: 0; }
   .title-card .wordmark { font-size: 16px; letter-spacing: 0.3em; text-transform: uppercase; color: #6fa8ff; }

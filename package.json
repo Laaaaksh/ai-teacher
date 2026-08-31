@@ -53,6 +53,7 @@
     "esbuild@0.28.2": true,
     "unrs-resolver@1.12.2": true,
     "fsevents@2.3.3": true,
-    "protobufjs@6.11.6": true
+    "protobufjs@6.11.6": true,
+    "sharp@0.32.6": true
   }
 }

@@ -23,9 +23,11 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   too rather than debugged from scratch.
 - `SARVAM_API_KEY` is the only AI credential this project uses; `.env.example`
   documents it. Never invent a dependency on another paid API.
-- Native modules (`better-sqlite3`, `protobufjs`) need `npm approve-scripts
-  <pkg>` in this environment before `npm install` will run their build
-  step — see the `allowScripts` block in `package.json`.
+- Native modules (`better-sqlite3`, `protobufjs`, and the `sharp` nested under
+  `@xenova/transformers`, without which `lib/rag/embed.ts` throws at module
+  load) need `npm approve-scripts <pkg>` in this environment before `npm
+  install` will run their build step — see the `allowScripts` block in
+  `package.json`.
 - `lib/rag/embed.ts`'s embedding model (`Xenova/all-MiniLM-L6-v2`) downloads
   once to `.cache/transformers/` (gitignored, ~23MB) on first use — needs
   network the very first time; every run after that is offline.

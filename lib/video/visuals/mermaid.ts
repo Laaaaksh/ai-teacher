@@ -45,6 +45,19 @@ export async function renderMermaidSvg(source: string, page: Page): Promise<stri
 }
 
 /**
+ * The model writes markdown emphasis into node labels (`X[a **gap**]`) no
+ * matter what the prompt says, and Mermaid either renders the asterisks
+ * literally or, combined with other label syntax, fails to lex the line at
+ * all — so the emphasis is stripped in code rather than asked for in a prompt.
+ */
+export function stripMarkdownEmphasis(source: string): string {
+  return source
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1");
+}
+
+/**
  * Content contract for kinds "diagram"/"timeline"/"architecture-diagram"
  * (renderer "mermaid"): raw Mermaid diagram source — Mermaid's own syntax,
  * unambiguous, so no extra JSON wrapping. Diagrams are revealed as a single
@@ -56,10 +69,17 @@ export async function renderMermaidSvg(source: string, page: Page): Promise<stri
 export async function renderMermaidVisual(source: string, page: Page, caption?: string): Promise<RenderedVisual> {
   let svg: string;
   try {
-    svg = await renderMermaidSvg(source, page);
+    svg = await renderMermaidSvg(stripMarkdownEmphasis(source), page);
   } catch (err) {
+    // A parse failure must never reach the frame: render.ts bakes this HTML
+    // into the MP4, so the message would be a stack trace the student watches.
+    // The caption carries the scene's real content instead, and the error is
+    // only logged server-side.
+    console.error("[video] Mermaid render failed; falling back to a caption panel:", err);
     return {
-      html: `<div class="visual-diagram-error">Diagram could not be rendered: ${escapeHtml((err as Error).message)}</div>`,
+      html: caption
+        ? `<div class="visual-diagram visual-diagram-fallback"><p class="visual-fallback-text">${escapeHtml(caption)}</p></div>`
+        : `<div class="visual-diagram visual-diagram-fallback"></div>`,
       stepCount: 1,
       revealMode: "fade",
     };

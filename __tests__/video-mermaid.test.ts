@@ -1,6 +1,6 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { renderMermaidVisual } from "../lib/video/visuals/mermaid";
+import { renderMermaidVisual, stripMarkdownEmphasis } from "../lib/video/visuals/mermaid";
 
 describe("renderMermaidVisual", () => {
   let browser: Browser;
@@ -22,8 +22,21 @@ describe("renderMermaidVisual", () => {
     expect(result.revealMode).toBe("fade");
   });
 
-  it("falls back to an inline error message for invalid Mermaid source instead of throwing", async () => {
+  it("strips markdown emphasis the model writes into node labels rather than letting the lexer reject it", async () => {
+    expect(stripMarkdownEmphasis("flowchart TD; X[बीच में **गैप**] --> Y[*तार* और `wire`];")).toBe("flowchart TD; X[बीच में गैप] --> Y[तार और wire];");
+
+    const result = await renderMermaidVisual("flowchart TD; A[a **gap**] --> B[the `wire`];", page);
+    expect(result.html).toContain("<svg");
+  });
+
+  it("falls back to the caption instead of baking the parser error into the frame", async () => {
+    const result = await renderMermaidVisual("this is not a valid diagram $$$", page, "A broken circuit stops the current");
+    expect(result.html).toContain("A broken circuit stops the current");
+    expect(result.html).not.toMatch(/could not be rendered|Lexical error|Parse error|at Parser/i);
+  });
+
+  it("falls back to a neutral panel with no error text when the scene has no caption", async () => {
     const result = await renderMermaidVisual("this is not a valid diagram $$$", page);
-    expect(result.html).toContain("could not be rendered");
+    expect(result.html).toBe(`<div class="visual-diagram visual-diagram-fallback"></div>`);
   });
 });
