@@ -28,6 +28,18 @@ export interface RenderLessonOptions {
   fps?: number;
   personaId?: string;
   onProgress?: (p: RenderProgress) => void;
+  /**
+   * Render only these scenes (in the plan's own order), rather than every
+   * scene on the plan — the interactive lesson player renders one segment
+   * at a time (a concept's teaching beats, or a single re-explanation scene
+   * after an incorrect answer) instead of the whole multi-concept lesson
+   * up front, since later segments don't exist yet at the start of a
+   * session (scripting is incremental, and adaptation scenes are created
+   * only after an answer comes in).
+   */
+  sceneIds?: string[];
+  /** Skip the "Welcome! In this lesson..." title card — for a continuation segment, not the first one. */
+  skipTitleCard?: boolean;
 }
 
 /**
@@ -130,23 +142,30 @@ function hashSeed(s: string): number {
 export async function renderLessonVideo(lessonPlanId: string, outputPath: string, opts: RenderLessonOptions = {}): Promise<{ outputPath: string; sceneCount: number }> {
   const plan = getLessonPlan(lessonPlanId);
   if (!plan) throw new Error(`No lesson plan found for id ${lessonPlanId}.`);
-  const scenes = getScenesForLessonPlan(lessonPlanId);
+  const allScenes = getScenesForLessonPlan(lessonPlanId);
+  const scenes = opts.sceneIds ? allScenes.filter((s) => opts.sceneIds!.includes(s.id)) : allScenes;
   if (scenes.length === 0) throw new Error(`Lesson plan ${lessonPlanId} has no scenes to render.`);
 
   const fps = opts.fps ?? DEFAULT_FPS;
   const persona = getPersona(opts.personaId);
+  const includeTitleCard = !opts.skipTitleCard;
   const report = (p: RenderProgress) => opts.onProgress?.(p);
 
   const browser = await chromium.launch();
   try {
     // --- Narration: one Sarvam TTS call per scene, cached by content hash (narrate.ts) ---
-    report({ stage: "narrating", percent: 0, detail: "Synthesizing title card narration" });
-    const titleCardVideoPromise = buildTitleCard({ browser, topic: plan.topic, language: plan.language, persona, fps });
-    // The title card renders alongside the scene loop below and is only awaited
-    // after it, so its rejection must be marked handled now — otherwise a TTS or
-    // ffmpeg failure here is an unhandled rejection that takes the process down
-    // instead of failing just this job.
-    titleCardVideoPromise.catch(() => {});
+    const titleCardVideoPromise = includeTitleCard
+      ? (() => {
+          report({ stage: "narrating", percent: 0, detail: "Synthesizing title card narration" });
+          const p = buildTitleCard({ browser, topic: plan.topic, language: plan.language, persona, fps });
+          // The title card renders alongside the scene loop below and is only awaited
+          // after it, so its rejection must be marked handled now — otherwise a TTS or
+          // ffmpeg failure here is an unhandled rejection that takes the process down
+          // instead of failing just this job.
+          p.catch(() => {});
+          return p;
+        })()
+      : null;
 
     const narrations: { scene: SceneRow; audioPath: string; durationSeconds: number; envelope: number[] }[] = [];
     for (let i = 0; i < scenes.length; i++) {
@@ -192,12 +211,12 @@ export async function renderLessonVideo(lessonPlanId: string, outputPath: string
       await prepPage.close();
     }
 
-    const titleCardPath = await titleCardVideoPromise;
+    const titleCardPath = titleCardVideoPromise ? await titleCardVideoPromise : null;
 
     // --- Concatenate title card + scenes into the final lesson video ---
     report({ stage: "muxing", percent: 90, detail: "Concatenating scenes" });
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    await concatVideos([titleCardPath, ...sceneVideoPaths], outputPath);
+    await concatVideos(titleCardPath ? [titleCardPath, ...sceneVideoPaths] : sceneVideoPaths, outputPath);
 
     report({ stage: "muxing", percent: 100, detail: "Done" });
     return { outputPath, sceneCount: scenes.length };

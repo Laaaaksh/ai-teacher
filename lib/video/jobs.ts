@@ -13,12 +13,22 @@ import { renderLessonVideo } from "./render";
  * `next start`/`next dev` instance, not a multi-instance/serverless
  * deployment (see docs/VIDEO.md known limitations).
  */
-export function startVideoJob(lessonPlanId: string, personaId: string = DEFAULT_PERSONA_ID): VideoJobRow {
+export interface StartVideoJobOptions {
+  personaId?: string;
+  /** Render only these scenes — see RenderLessonOptions.sceneIds. */
+  sceneIds?: string[];
+  skipTitleCard?: boolean;
+}
+
+export function startVideoJob(lessonPlanId: string, opts: StartVideoJobOptions = {}): VideoJobRow {
+  const personaId = opts.personaId ?? DEFAULT_PERSONA_ID;
   const job = createVideoJob({ lessonPlanId, personaId });
   const outputPath = path.join(outputDir(), `${job.id}.mp4`);
 
   void renderLessonVideo(lessonPlanId, outputPath, {
     personaId,
+    sceneIds: opts.sceneIds,
+    skipTitleCard: opts.skipTitleCard,
     onProgress: (progress) => {
       updateVideoJobProgress(job.id, progress.stage, progress.percent, progress.detail);
     },
