@@ -11,12 +11,15 @@ limitations sections; this is the jury-facing summary, organized by area.
 
 ![A real captured frame showing the KaTeX renderer's parse-error fallback: the model's raw HTML markup printed in red instead of a rendered equation](assets/screenshot-visual-fallback-example.png)
 
-*An actual frame from this documentation's own live render (scene 8/18, the
-"Voltage Is the Push" concept's worked example) — the KaTeX renderer's
-defensive fallback (`throwOnError: false`), printing the model's own
-non-LaTeX content in red where the equation should be. The narrated caption
-below it still renders. This is the failure mode described below, not
-staged.*
+*An actual frame from this documentation's own live render. Scene 8/18 is
+scene `order` 7 — the second concept's (`"Voltage Is the Push"`) `example`
+beat, which physics's `example` override in `SUBJECT_VISUAL_RULES` assigns
+to the `katex` renderer. The model returned raw HTML there instead of LaTeX,
+so KaTeX (`throwOnError: false`) printed that content back verbatim in red
+where the equation should be, and the scene's narrated caption still
+rendered below it. Not staged — and distinct from the app's own renderer
+fallbacks (`mermaid`, `plotter`, `svg`, `image`), which emit a centred
+orange message rather than the source text.*
 
 - **The model occasionally emits visual content in the wrong format for its
   assigned renderer, and the renderer falls back to a visible red error
