@@ -13,6 +13,32 @@ interface FeedbackState {
   adaptation: AdaptationResult | null;
 }
 
+/** A concept's checkpoint scene order — everything after it (its "transition" beat) narrates a bridge into the NEXT concept, not this one, so it must not play before this concept's own question. */
+function checkpointOrderFor(scenes: Scene[], conceptId: string): number {
+  return scenes.find((s) => s.conceptId === conceptId && s.type === "checkpoint")?.order ?? Infinity;
+}
+
+/**
+ * A concept's teaching segment is its own pre-checkpoint beats (intro/
+ * explanation/example) PLUS the previous concept's trailing "transition"
+ * beat, which is authored to bridge INTO this concept and therefore belongs
+ * at the start of this segment, not the end of the previous one.
+ */
+function teachingSegmentFor(scenes: Scene[], plan: LessonPlan, conceptIndex: number): Scene[] {
+  const concept = plan.concepts[conceptIndex];
+  const ownCheckpointOrder = checkpointOrderFor(scenes, concept.id);
+  const own = scenes.filter((s) => s.conceptId === concept.id && s.type !== "checkpoint" && s.type !== "summary" && s.order < ownCheckpointOrder);
+
+  let bridge: Scene[] = [];
+  if (conceptIndex > 0) {
+    const prevConcept = plan.concepts[conceptIndex - 1];
+    const prevCheckpointOrder = checkpointOrderFor(scenes, prevConcept.id);
+    bridge = scenes.filter((s) => s.conceptId === prevConcept.id && s.type !== "checkpoint" && s.type !== "summary" && s.order > prevCheckpointOrder);
+  }
+
+  return [...bridge, ...own].sort((a, b) => a.order - b.order);
+}
+
 /**
  * The teaching video plays one segment at a time (a concept's teaching
  * beats, then a re-explanation after a wrong answer), pausing at every
@@ -59,7 +85,7 @@ export function LessonPlayer({
         const terminal = ["ready", "partial", "failed"].includes(data.session.scriptingStatus);
 
         if (hasCheckpoint) {
-          const teachingScenes = scenes.filter((s) => s.conceptId === concept.id && s.type !== "checkpoint" && s.type !== "summary").sort((a, b) => a.order - b.order);
+          const teachingScenes = teachingSegmentFor(scenes, plan, conceptIndex);
           setSkipTitleCard(conceptIndex > 0);
           setReviewingConceptTitle(null);
           if (teachingScenes.length > 0) {
