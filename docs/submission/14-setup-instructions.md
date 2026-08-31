@@ -107,22 +107,32 @@ report naming real weak areas. `/rag-demo` exercises document indexing →
 outline extraction → grounded question-answering on its own, independent of
 a full lesson.
 
-**Measured, live, on this exact checkout, while writing this documentation**
+**Measured, live, on this exact checkout, while writing and reviewing this
+documentation**
 (via the API surface directly — see [04](04-system-architecture.md) for the
 full request-path diagram):
 
+The first three figures below are ranges spanning **two** runs of the same
+flow on one machine, and the fourth is a **single** run — these are samples,
+not a benchmark, and the dominant source of variance is live third-party
+Sarvam API latency, which this project does not control.
+
 - Planning a 3-concept, 20-minute "Electricity: Ohm's Law" lesson for a
-  beginner: **~37s**, one request.
+  beginner: **~37–44s**, one request.
 - Scripting all 3 concepts into full scenes (in the background, pooled 3 at
-  a time): **~80s**.
+  a time): **~80–160s**.
 - Evaluating a wrong checkpoint answer, naming the misconception, and
   generating the full adaptation (re-explanation, new example, new
-  question): **~42s**, one request — the real trace is in
+  question): **~42–83s**, one request — the real trace is in
   [07](07-prompt-agent-architecture.md).
 - Rendering the full 18-scene lesson video (15 taught beats — 5 beats × 3
   concepts — plus 2 adaptation scenes and a closing summary) into a
   downloadable MP4, real Sarvam TTS + real Chromium capture + real `ffmpeg`
-  mux: **9m 49s (589s)** wall-clock, producing an 8m 9s video. Breakdown in
+  mux: **9m 49s (589s)** wall-clock, producing an 8m 9s video. That render
+  was only ever run once, so this is one measured run rather than a range —
+  not a guarantee of render time on any other machine or lesson, since it
+  depends on live Sarvam TTS latency and local CPU/GPU capability as well as
+  lesson length. Breakdown in
   [12 — Avatar and video generation approach](12-avatar-video-generation.md#what-was-actually-measured-live-during-this-build).
 
 ## Optional: the RAG evaluation harness

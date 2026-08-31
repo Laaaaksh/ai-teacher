@@ -184,3 +184,10 @@ end — real Sarvam TTS narration, real headless-Chromium frame capture and
 real `ffmpeg` mux — and produced an **8-minute-9-second (488.7s)** final
 video. Measured from this run's own `video_jobs` row (`created_at` to the
 completed `updated_at`), not estimated.
+
+That is a **single** measured run — this lesson was only ever rendered once —
+not a benchmark and not a guarantee of render time on another machine or
+another lesson. Alongside lesson length, the two things that move it most are
+live Sarvam TTS latency (a third-party API this project does not control) and
+local CPU/GPU capability for the headless-Chromium capture and the `ffmpeg`
+encode, so a re-run can differ substantially.
