@@ -15,11 +15,12 @@ npx tsx scripts/record-demo/record.ts
 ```
 
 Needs a clean slate for a real cold run: `data/ai-teacher.sqlite` deleted and
-`data/uploads/` emptied *together* (see "Known limitations" below for why
-doing only one is worse than doing neither), and `SARVAM_API_KEY` set in the
-environment. Output lands in `scripts/record-demo/output/` (gitignored): the
-raw Playwright recording, the downloaded real teaching-video clips, and
-`timeline.json`/`video-manifest.json` describing what happened when.
+`data/uploads/` emptied *together* — clearing only one leaves the app working
+off half-stale state (see "Known limitations" below) — and `SARVAM_API_KEY`
+set in the environment. Output lands in `scripts/record-demo/output/`
+(gitignored): the raw Playwright recording, the downloaded real
+teaching-video clips, and `timeline.json`/`video-manifest.json` describing
+what happened when.
 
 Then assemble the final cut:
 
@@ -132,12 +133,9 @@ retouched one.
 
 ## Known limitation this surfaced in the app itself
 
-Not a recorder bug — a real robustness gap in `app/api/documents/[id]/outline`:
-once a document is indexed, its chunks live in the DB independent of the
-original uploaded file, but outline extraction still re-reads the original
-file from `data/uploads/` and dead-ends with "no longer available on disk"
-if that file is gone (e.g. a DB reset that wasn't paired with clearing
-`data/uploads/`, which is exactly what happened once during this work). It
-doesn't fall back to the already-indexed chunks it could outline from
-instead. A judge who resets one without the other, or whose upload directory
-gets cleared independently of the DB, would hit this dead end.
+Not a recorder bug: a DB reset that wasn't paired with clearing
+`data/uploads/` happened once during this work, and outline extraction
+dead-ended on the missing original file. `app/api/documents/[id]/outline`
+now falls back to reconstructing the document from its already-indexed
+chunks instead — see docs/ARCHITECTURE.md's Known limitations for what that
+fallback does and does not preserve.

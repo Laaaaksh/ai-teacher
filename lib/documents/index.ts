@@ -8,7 +8,7 @@ import type { ParsedDocument } from "./types";
 
 export { DocumentParseError } from "./errors";
 export type { DocumentErrorKind } from "./errors";
-export { saveUploadedFile, readUploadedFile } from "./storage";
+export { saveUploadedFile, readUploadedFile, uploadedFileExists } from "./storage";
 export * from "./types";
 
 function extensionOf(filename: string): string {

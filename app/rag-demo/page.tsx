@@ -33,6 +33,8 @@ interface DocumentSummary {
   format: string;
   pageCount: number | null;
   language: string | null;
+  /** False when the upload has neither its original file on disk nor any embedded chunks left to reconstruct from. */
+  available: boolean;
 }
 
 interface IndexProgress {
@@ -106,14 +108,19 @@ export default function RagDemo() {
               <li key={d.id}>
                 <button
                   type="button"
+                  disabled={!d.available}
                   onClick={() => setSelectedId(d.id)}
+                  title={d.available ? undefined : "This document's upload and indexed content are both gone — it can no longer be used."}
                   className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                    selectedId === d.id
-                      ? "border-neutral-900 bg-neutral-50 dark:border-neutral-100 dark:bg-neutral-800"
-                      : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800"
+                    !d.available
+                      ? "cursor-not-allowed border-neutral-200 opacity-50 dark:border-neutral-800"
+                      : selectedId === d.id
+                        ? "border-neutral-900 bg-neutral-50 dark:border-neutral-100 dark:bg-neutral-800"
+                        : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800"
                   }`}
                 >
                   {d.title} <span className="text-neutral-400">({d.format.toUpperCase()}{d.pageCount ? `, ${d.pageCount}p` : ""}{d.language ? `, ${d.language}` : ""})</span>
+                  {!d.available && <span className="ml-2 text-red-500">unavailable</span>}
                 </button>
               </li>
             ))}
