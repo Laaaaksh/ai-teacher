@@ -76,9 +76,10 @@ is `lib/rag/`, below.
 
 ### RAG slice — implemented (`lib/rag/`)
 
-- **Chunking** (`lib/rag/chunk.ts`): a second, retrieval-tuned chunker —
-  the upload route now calls this one instead of the original
-  `lib/documents/chunk.ts` — that overlaps chunks across a semantic boundary
+- **Chunking** (`lib/rag/chunk.ts`): the retrieval-tuned chunker the upload
+  route calls. It replaced the foundation's original citation-preserving
+  chunker (`lib/documents/chunk.ts`, deleted with its tests when the slices
+  were integrated) and overlaps chunks across a semantic boundary
   (whole trailing paragraphs carried forward, never a mid-sentence cut) and
   builds a heading breadcrumb (`"Chapter 4 > Ohm's Law"`) from DOCX/Markdown's
   real heading levels (`ParsedSection.level`, added for this).
@@ -295,7 +296,10 @@ then runs in the background, verified live at ~94s more for those 3
 concepts, in parallel) · `GET /sessions/[id]`
 (session + plan + whatever scenes have scripted so far + `scriptingProgress`
 + answers — poll this until `scriptingStatus` is
-`"ready"`/`"partial"`/`"failed"`) · `POST /sessions/[id]/answer` (evaluate +
+`"ready"`/`"partial"`/`"failed"`) · `PATCH /sessions/[id]`
+(the player reports which scene the student is on, so a mid-lesson question
+is answered against the concept actually on screen) ·
+`POST /sessions/[id]/answer` (evaluate +
 adapt) · `POST /sessions/[id]/ask` (grounded follow-up / language switch) ·
 `POST /sessions/[id]/assess` then `POST /sessions/[id]/assess/submit`
 (generate quiz, then grade it and produce the report, alongside
@@ -459,7 +463,10 @@ appendix to it.
 - **Health check's STT probe** posts a valid-but-silent WAV, so it verifies the
   endpoint is reachable and authenticated, not that transcription accuracy is
   good — a true accuracy check needs real speech audio, which a health check
-  can't manufacture.
+  can't manufacture. The format the lesson player actually records
+  (`audio/webm;codecs=opus`, uploaded as `answer.webm` through
+  `POST /api/speech`) was verified separately against the live endpoint and
+  transcribed correctly.
 - **Hinglish retrieval only works when the query's key terms are actual
   English words** ("explain the circuit ka concept"). `lib/rag/language.ts`
   treats `hinglish` as English for both document-language detection and
@@ -475,13 +482,6 @@ appendix to it.
   cognate in the query does not. A dedicated transliteration step (Latin
   Hindi → Devanagari before the existing translate path) would fix this;
   out of scope for this slice.
-- **`lib/documents/chunk.ts` is dead code, retained on purpose.** The upload
-  route calls `lib/rag/chunk.ts` now, so the original chunker has no
-  production caller — but the two other in-flight slices (`ait-engine`,
-  `ait-video`) branched off the pre-RAG foundation, where the upload route
-  still imports it. Deleting it here would break them when the stack
-  flattens, so it and its tests stay until that flattening lands on `main`,
-  and should be deleted then.
 - **Outline extraction (`lib/rag/outline.ts`) needs the original upload on
   disk** (`lib/documents/storage.ts`, `data/uploads/`, gitignored) — it
   re-parses the source file rather than reconstructing structure from

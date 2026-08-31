@@ -23,3 +23,18 @@ export function setStoredLearnerProfileId(id: string): void {
     // Private-browsing/storage-disabled: the session still works, it just won't be remembered next visit.
   }
 }
+
+/**
+ * The stored id points at a row in a local, freely-deletable SQLite file
+ * (`data/ai-teacher.db`). When the server says that profile is gone, the id
+ * is dead weight that 404s every request — drop it so the next attempt
+ * starts a fresh learner instead of wedging.
+ */
+export function clearStoredLearnerProfileId(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Same storage-disabled case as above; nothing was persisted to clear.
+  }
+}

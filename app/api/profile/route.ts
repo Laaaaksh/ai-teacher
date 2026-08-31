@@ -1,22 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createLearnerProfile, listLearnerProfiles } from "@/lib/db";
+import { LANGUAGE_CODES } from "@/lib/teach/profile";
 
 export const runtime = "nodejs";
-
-const LANGUAGE_CODES = [
-  "en-IN",
-  "hi-IN",
-  "hinglish",
-  "bn-IN",
-  "ta-IN",
-  "te-IN",
-  "mr-IN",
-  "kn-IN",
-  "gu-IN",
-  "ml-IN",
-  "pa-IN",
-] as const;
 
 const ProfileInputSchema = z.object({
   name: z.string().min(1).max(200),

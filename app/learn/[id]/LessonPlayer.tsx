@@ -29,12 +29,11 @@ function teachingSegmentFor(scenes: Scene[], plan: LessonPlan, conceptIndex: num
   const ownCheckpointOrder = checkpointOrderFor(scenes, concept.id);
   const own = scenes.filter((s) => s.conceptId === concept.id && s.type !== "checkpoint" && s.type !== "summary" && s.order < ownCheckpointOrder);
 
-  let bridge: Scene[] = [];
-  if (conceptIndex > 0) {
-    const prevConcept = plan.concepts[conceptIndex - 1];
-    const prevCheckpointOrder = checkpointOrderFor(scenes, prevConcept.id);
-    bridge = scenes.filter((s) => s.conceptId === prevConcept.id && s.type !== "checkpoint" && s.type !== "summary" && s.order > prevCheckpointOrder);
-  }
+  /* Only the transition beat: an adaptation re-explanation is also an
+   * above-the-checkpoint scene on the previous concept, and it has already
+   * been watched by the time this concept starts. */
+  const bridge =
+    conceptIndex > 0 ? scenes.filter((s) => s.conceptId === plan.concepts[conceptIndex - 1].id && s.type === "transition") : [];
 
   return [...bridge, ...own].sort((a, b) => a.order - b.order);
 }
@@ -68,6 +67,19 @@ export function LessonPlayer({
 
   const concept = plan.concepts[conceptIndex];
 
+  /* The server resolves "what is the student looking at right now" from
+   * `lesson_sessions.current_scene_order` (the ask panel answers against
+   * that concept), so every move to a new beat reports its position. Fire
+   * and forget: a failed report must never stall the lesson. */
+  function reportPosition(order: number | undefined) {
+    if (order === undefined) return;
+    fetch(`/api/teach/sessions/${session.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentSceneOrder: order }),
+    }).catch(() => {});
+  }
+
   // Wait for the current concept's scenes to finish background scripting, then start teaching it.
   useEffect(() => {
     if (phase !== "loading-scenes") return;
@@ -89,6 +101,8 @@ export function LessonPlayer({
           setSkipTitleCard(conceptIndex > 0);
           setReviewingConceptTitle(null);
           if (teachingScenes.length > 0) {
+            // The bridge scene belongs to the PREVIOUS concept, so report this concept's own first beat.
+            reportPosition(teachingScenes.find((s) => s.conceptId === concept.id)?.order);
             setActiveSceneIds(teachingScenes.map((s) => s.id));
             setPhase("segment");
           } else {
@@ -126,6 +140,7 @@ export function LessonPlayer({
       setPhase("skipped-concept");
       return;
     }
+    reportPosition(checkpointScene.order);
     await loadQuestion(checkpointScene.questionId);
   }
 
@@ -160,6 +175,7 @@ export function LessonPlayer({
       const data = await res.json();
       const summaryScene: Scene | undefined = data.scenes.find((s: Scene) => s.type === "summary");
       if (summaryScene) {
+        reportPosition(summaryScene.order);
         setSkipTitleCard(true);
         setActiveSceneIds([summaryScene.id]);
         setPhase("summary");
@@ -196,6 +212,7 @@ export function LessonPlayer({
   }
 
   function beginAdaptationSegment(adaptation: AdaptationResult) {
+    reportPosition(adaptation.reExplanationScene.order);
     setSkipTitleCard(true);
     setActiveSceneIds([adaptation.reExplanationScene.id]);
     setActiveQuestion(adaptation.followUpQuestion);

@@ -26,9 +26,9 @@ See `lib/db/accessors/learners.ts`.
 `language` — set once by `lib/rag/embed.ts`'s `indexDocument()` from a
 script-detection heuristic, used to translate retrieval queries; see
 `lib/rag/language.ts`). `document_chunks` holds the retrieval-sized pieces
-produced by `lib/rag/chunk.ts` (the upload route's chunker as of the RAG
-slice — see docs/ARCHITECTURE.md for how it differs from
-`lib/documents/chunk.ts`), each carrying `page` and/or `section` so an
+produced by `lib/rag/chunk.ts` (the upload route's only chunker — it
+replaced the foundation's `lib/documents/chunk.ts`, which was deleted when
+the slices were integrated), each carrying `page` and/or `section` so an
 answer grounded in the document can cite back to an exact location.
 `embedding` is a nullable BLOB — `NULL` until `indexDocument()` embeds it
 (local MiniLM vectors, Sarvam has no embeddings endpoint), then a Float32

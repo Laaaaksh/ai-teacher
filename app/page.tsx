@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getStoredLearnerProfileId, setStoredLearnerProfileId } from "@/lib/client/learner";
+import { clearStoredLearnerProfileId, getStoredLearnerProfileId, setStoredLearnerProfileId } from "@/lib/client/learner";
 
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 const DEPTHS = ["overview", "standard", "deep"] as const;
@@ -113,6 +113,11 @@ export default function Home() {
     }
   }
 
+  function forgetLearnerProfile() {
+    clearStoredLearnerProfileId();
+    setLearnerProfileId(null);
+  }
+
   async function handleUnderstand() {
     if (!instruction.trim()) {
       setError("Tell the AI Teacher how you'd like to be taught first.");
@@ -126,11 +131,20 @@ export default function Home() {
     setStage("understanding");
     setError(null);
     try {
-      const res = await fetch("/api/teach/intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, learnerProfileId: learnerProfileId ?? undefined }),
-      });
+      const parse = (profileId: string | null) =>
+        fetch("/api/teach/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instruction, learnerProfileId: profileId ?? undefined }),
+        });
+
+      let res = await parse(learnerProfileId);
+      /* The remembered profile lives in a local DB file that can be reset out
+       * from under the browser; a dead id must not wedge the entry screen. */
+      if (res.status === 404 && learnerProfileId) {
+        forgetLearnerProfile();
+        res = await parse(null);
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Couldn't understand that instruction.");
 
@@ -159,6 +173,19 @@ export default function Home() {
         style: intent.style,
       };
 
+      if (profileId) {
+        const patched = await fetch(`/api/profile/${profileId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileFields),
+        }).catch(() => undefined);
+        // The remembered profile is gone from the local DB — every later call would 404 on it, so start a fresh learner.
+        if (patched?.status === 404) {
+          forgetLearnerProfile();
+          profileId = null;
+        }
+      }
+
       if (!profileId) {
         const res = await fetch("/api/profile", {
           method: "POST",
@@ -167,15 +194,9 @@ export default function Home() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Failed to create learner profile.");
-        profileId = data.profile.id;
+        profileId = data.profile.id as string;
         setStoredLearnerProfileId(profileId!);
         setLearnerProfileId(profileId);
-      } else {
-        await fetch(`/api/profile/${profileId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(profileFields),
-        }).catch(() => {});
       }
 
       if (intent.schedule) {
@@ -385,9 +406,12 @@ function ConfirmIntent({
         </p>
       )}
 
+      {/* Both are always-on: every concept gets a checkpoint question (lib/teach/session.ts's fixed
+          per-concept beats) and every lesson ends in the final check, whatever the instruction asked
+          for — so these state what will happen rather than offering a choice the lesson can't honour. */}
       <div className="flex flex-wrap gap-2 text-xs">
-        <Badge>{intent.wantsQuestions ? "Will question you during the lesson" : "Light on checkpoints"}</Badge>
-        <Badge>{intent.wantsFinalAssessment ? "Will test you at the end" : "Final check optional"}</Badge>
+        <Badge>Asks you a question after every concept</Badge>
+        <Badge>Tests you at the end of the lesson</Badge>
       </div>
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
