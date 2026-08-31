@@ -52,17 +52,19 @@ and `npm run build` locally before pushing.
 
 ## What works today
 
-Document ingestion, hybrid BM25 + dense retrieval, cited answers (or an
-honest refusal), cross-language querying, and chapter/concept extraction are
-all live — see `/rag-demo`. The teaching loop — plan a lesson, teach it beat
-by beat, ask checkpoint questions, evaluate an answer, re-explain differently
-when it's wrong, then produce a report — runs behind `/api/teach/*`; see "The
-teaching engine" in `docs/ARCHITECTURE.md` for the endpoints. Note that
-`POST /api/teach/sessions` returns once the lesson is *planned* and scripts
-the lesson in the background, so poll `GET /api/teach/sessions/:id` until its
-`scriptingStatus` settles. Teaching-video generation (narration, subject-aware
-visuals, the avatar, composition, encoding) is implemented in `lib/video/` —
-see `docs/VIDEO.md`.
+The full loop from the home page works end to end: upload material or name a
+topic, describe how you want to be taught in your own words, review the
+lesson plan (concepts, minutes, and the visual chosen for each one with its
+reason), watch a real generated teaching video, answer a checkpoint by typing
+or voice, watch it visibly re-explain with a different analogy when you're
+wrong, interrupt to ask anything or switch language mid-lesson, finish a
+quiz, and read a report naming your actual weak areas. `/progress` tracks
+mastery and past sessions across visits. See "The student experience" in
+`docs/ARCHITECTURE.md` for how the pieces fit together, and "The teaching
+engine" for the `/api/teach/*` surface it's built on (`POST /sessions`
+returns once the lesson is *planned*; scripting finishes in the background,
+polled via `scriptingStatus`). `/rag-demo` exercises retrieval and grounding
+on their own; `docs/VIDEO.md` covers the video-generation pipeline.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
 database schema.

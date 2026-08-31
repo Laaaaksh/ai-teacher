@@ -364,6 +364,57 @@ Two smaller fixes, also found live:
    language in words ("Write in English (language code \"en-IN\").") and
    every module routes through it instead of interpolating the raw code.
 
+## The student experience (`app/`)
+
+Integrates every slice above into the actual product a learner uses, end to end.
+
+- **Entry** (`app/page.tsx`): upload material or name a topic, plus one
+  free-text instruction box — `POST /api/teach/intent` parses it into a
+  `TeachingIntent` (level, topic, minutes, language, depth, style) via
+  `lib/teach/profile.ts`, shown back to the learner as editable fields
+  before anything is built. This is the "Understand" step made visible,
+  not a twelve-field form. A learner profile is created/updated silently
+  from the confirmed intent and kept in `localStorage`
+  (`lib/client/learner.ts`) — this is a single-learner-per-browser demo,
+  which is what makes a second session personalized by the first.
+- **Plan review** (`app/learn/[id]/LearnPageClient.tsx`): shows the
+  `LessonPlan`'s concepts, per-concept minutes, and — per the spec's
+  "demonstrate how the system decides" — each concept's chosen visual with
+  its `rationale` (`VisualPreview.tsx`; KaTeX content renders faithfully
+  client-side since it's cheap, everything else shows its rationale/caption
+  with the polished render appearing in the generated video), plus any
+  grounding citations, while scripting finishes in the background.
+- **The lesson player** (`LessonPlayer.tsx`): plays one teaching segment of
+  video at a time — a concept's intro/explanation/example beats, then a
+  single re-explanation scene after a wrong answer — rather than rendering
+  the whole multi-concept lesson as one video up front, since adaptation
+  scenes don't exist until the learner actually answers (see
+  `lib/video/render.ts`'s `sceneIds` option). A concept's own beats plus the
+  *previous* concept's trailing "transition" scene (authored to bridge
+  into this concept, not close out the last one — found by actually running
+  a lesson end to end) form each segment; the segment always stops before
+  the checkpoint scene, which is rendered as an interactive question
+  (`CheckpointQuestion.tsx`) instead of baked into video, answered by typing
+  or by voice (`POST /api/speech`, Sarvam STT). A wrong answer shows the
+  named misconception, the re-explanation video, and a fresh question at
+  adjusted difficulty (`FeedbackCard`) — a judge can see the adaptation
+  happen, not a canned "incorrect, it's B". `AskAnything.tsx` is a
+  persistent panel for mid-lesson interruptions and language switching
+  (`POST /api/teach/sessions/[id]/ask`), grounded with a visible citation
+  (`Citations.tsx`, which can open the full source passage via
+  `GET /api/documents/[id]/chunks/[chunkId]`) or plainly marked general
+  knowledge.
+- **Assessment and report** (`Assessment.tsx`, `Report.tsx`): the final
+  quiz, then the learning report — score, concepts understood, weak areas,
+  misconceptions still held, recommended revision, next topic.
+- **Progress dashboard** (`app/progress/`, `GET /api/progress`): every
+  session for this learner, its report, per-concept mastery, and any
+  learning paths — one fan-out over existing accessors
+  (`lib/db/accessors/*`), not new state.
+- **Learning paths** (`app/paths/[id]/`): a broad/multi-day request builds a
+  `LearningPath`; each step's own `LessonPlan` is generated (a normal
+  `POST /api/teach/sessions` call) when the learner starts that step.
+
 ## Known limitations
 
 The teaching-video slice keeps its own list (viseme approximation, no
@@ -371,6 +422,30 @@ illustrative art, single-process job queue, even-paced captions) in Known
 limitations in `docs/VIDEO.md` — that list is part of this contract, not an
 appendix to it.
 
+- **A video segment renders live, in real time, verified end to end at
+  ~1-2 minutes for a 3-scene concept segment** (Playwright screenshots every
+  frame at 24fps, then ffmpeg encodes) — real progress is shown while it
+  renders, not a fake spinner, but there is no pre-rendering or caching
+  ahead of where the learner is, so each new segment (and each
+  re-explanation after a wrong answer) has this real cost. Acceptable for a
+  single-learner demo; a multi-learner deployment would want to pre-render
+  the next segment while the current one plays.
+- **Learning-path step completion is not tracked automatically.**
+  `updateLearningPathProgress` exists but has no caller — starting a step
+  from `app/paths/[id]/` generates a normal lesson session, but finishing it
+  doesn't unlock the next step or mark this one complete. The UI says so
+  plainly rather than pretending it works; `lesson_sessions` has no
+  path/step foreign key to key that off, which is the schema change a real
+  implementation would need.
+- **The final quiz is typed only, no voice input** — `CheckpointQuestion.tsx`'s
+  voice answering (`POST /api/speech`) is wired into the lesson player's
+  checkpoints, not `Assessment.tsx`'s end-of-lesson quiz, since the two
+  don't share a component. Scoped out under time pressure, not a technical
+  limitation.
+- **Revisiting a `/learn/[id]` URL for an already-completed session replays
+  the lesson from concept 1** rather than jumping straight to its report —
+  the page has no "already completed, here's what happened" branch. The
+  report itself is still reachable from `app/progress/`.
 - **PPTX slide order** is inferred from the numeric suffix of
   `ppt/slides/slideN.xml` rather than the presentation's relationship-ordered
   slide list. This matches the overwhelming majority of exporters (including

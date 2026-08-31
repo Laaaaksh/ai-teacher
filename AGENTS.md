@@ -103,7 +103,16 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   timestamp — **never add a CSS `transition`/`@keyframes` to a composed
   page**, it runs on wall-clock time and breaks deterministic frame capture
   and per-scene caching. `VisualSpec.content`'s per-renderer format contract
-  is documented in `docs/VIDEO.md`, not here.
+  is documented in `docs/VIDEO.md`, not here. `render.ts`'s `sceneIds` option
+  renders a named subset of a plan's scenes rather than the whole thing — the
+  lesson player uses this to render one teaching segment at a time.
+- `app/learn/[id]/` — the student-facing lesson player: plan review, the
+  video-segment-by-segment player with checkpoints/adaptation/ask-anything,
+  assessment and report. `app/page.tsx` is the entry screen (intent parsing
+  + confirmation), `app/progress/` the cross-session dashboard, `app/paths/`
+  a learning path's steps. See `docs/ARCHITECTURE.md`'s "The student
+  experience" section. `lib/client/learner.ts` holds the single-learner
+  identity (a profile id in `localStorage`) these pages share.
 
 ## Testing
 
