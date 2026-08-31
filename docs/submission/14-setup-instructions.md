@@ -119,12 +119,11 @@ full request-path diagram):
   generating the full adaptation (re-explanation, new example, new
   question): **~42s**, one request — the real trace is in
   [07](07-prompt-agent-architecture.md).
-- Rendering the full 18-scene lesson video (11 taught beats + a
-  checkpoint-triggered adaptation re-explanation and follow-up checkpoint +
-  a closing summary) into a downloadable MP4, real Sarvam TTS + real
-  Chromium capture + real `ffmpeg` mux: see the render-time note in
-  [12 — Avatar and video generation approach](12-avatar-video-generation.md#what-was-actually-measured-live-during-this-build)
-  for the exact figure from this run.
+- Rendering the full 18-scene lesson video (15 taught beats — 5 beats × 3
+  concepts — plus 2 adaptation scenes and a closing summary) into a
+  downloadable MP4, real Sarvam TTS + real Chromium capture + real `ffmpeg`
+  mux: **9m 49s (589s)** wall-clock, producing an 8m 9s video. Breakdown in
+  [12 — Avatar and video generation approach](12-avatar-video-generation.md#what-was-actually-measured-live-during-this-build).
 
 ## Optional: the RAG evaluation harness
 

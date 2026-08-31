@@ -32,7 +32,8 @@ avatar's lip-sync, described in
 - **Verified live during this build**: `/api/health`'s TTS probe makes a
   real call and confirms the response decodes to a playable WAV; the actual
   Ohm's Law lesson video render exercised this for all 18 scenes of a real
-  lesson (11 original beats + 2 adaptation beats + summary), producing real
+  lesson (15 taught beats — 5 beats × 3 concepts — plus 2 adaptation scenes
+  and 1 closing summary), producing real
   narration audio for the trace in
   [07 — Prompt and agent architecture](07-prompt-agent-architecture.md).
 

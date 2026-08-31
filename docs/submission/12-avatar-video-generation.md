@@ -169,8 +169,15 @@ real `ffmpeg` muxing: server RSS stayed flat across the render (~75MB down to
 
 For this documentation's own writing, a longer, real, mixed-subject lesson
 was rendered for real: the full 3-concept, 18-scene "Electricity: Ohm's Law"
-lesson (11 taught beats + a checkpoint-triggered adaptation re-explanation +
-its own follow-up checkpoint + a closing summary), narrated in real Sarvam
-TTS, at 24fps default. See
-[14 — Setup instructions](14-setup-instructions.md) for the measured wall-clock
-time of that run on this machine.
+lesson — 15 taught beats (`BEATS_PER_CONCEPT = 5` × 3 concepts:
+introduction, explanation, example, checkpoint, transition) + 1 closing
+summary = 16 originally scripted scenes, plus the 2 adaptation scenes (a
+checkpoint-triggered re-explanation and its own follow-up checkpoint,
+appended after the wrong answer) = 18 — narrated in real Sarvam TTS, at
+24fps default.
+
+That render took **9 minutes 49 seconds (589s)** of wall-clock time end to
+end — real Sarvam TTS narration, real headless-Chromium frame capture and
+real `ffmpeg` mux — and produced an **8-minute-9-second (488.7s)** final
+video. Measured from this run's own `video_jobs` row (`created_at` to the
+completed `updated_at`), not estimated.

@@ -72,8 +72,7 @@ flowchart TB
     Sarvam --> SarvamAPI
 ```
 
-## Request path: upload → indexing → planning → scripting → narration →
-## rendering → the interactive loop
+## Request path: upload → indexing → planning → scripting → narration → rendering → the interactive loop
 
 This is the full path a judge exercises when they upload a chapter and start
 a 20-minute lesson. Every Sarvam call is labelled.

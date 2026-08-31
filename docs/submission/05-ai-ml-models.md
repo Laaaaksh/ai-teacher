@@ -63,9 +63,13 @@ It is English-tuned, which is why cross-language retrieval translates the
 
 - **No image-generation model.** Labelled diagrams are a generic geometric
   schematic (blob/rect/circle + leader lines via inline SVG), not
-  anatomically accurate artwork. The `image` visual renderer only ever
-  displays material the lesson actually cites (e.g. an image lifted from a
-  parsed slide) — never a generated one.
+  anatomically accurate artwork. An `image` visual renderer exists as a
+  content contract in the types and rendering layer (`VisualSpec`,
+  `lib/video/visuals/`), but no current code path in this branch reaches it:
+  no entry in `SUBJECT_VISUAL_RULES` (`lib/teach/script.ts`) ever selects
+  `renderer: "image"`, and no document parser (`lib/documents/`, including
+  `parsePptx.ts`) extracts images from an upload. No imagery — uploaded or
+  generated — appears in a rendered lesson today.
 - **No forced-alignment / phoneme-timing model.** The avatar's lip-sync is an
   amplitude-bucketed viseme approximation driven by the TTS audio's RMS
   envelope, not true phoneme-level sync, because Sarvam TTS returns no

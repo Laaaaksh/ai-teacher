@@ -9,32 +9,32 @@ limitations sections; this is the jury-facing summary, organized by area.
 
 ## Video generation
 
-![A real captured frame showing the KaTeX renderer's parse-error fallback: red raw-LaTeX text instead of a rendered equation](assets/screenshot-visual-fallback-example.png)
+![A real captured frame showing the KaTeX renderer's parse-error fallback: the model's raw HTML markup printed in red instead of a rendered equation](assets/screenshot-visual-fallback-example.png)
 
-*An actual frame from this documentation's own live render (scene 13/18) —
-the KaTeX renderer's defensive fallback, triggered because the model wrapped
-its LaTeX in `$$...$$` delimiters. This is the failure mode described below,
-not staged.*
+*An actual frame from this documentation's own live render (scene 8/18, the
+"Voltage Is the Push" concept's worked example) — the KaTeX renderer's
+defensive fallback (`throwOnError: false`), printing the model's own
+non-LaTeX content in red where the equation should be. The narrated caption
+below it still renders. This is the failure mode described below, not
+staged.*
 
 - **The model occasionally emits visual content in the wrong format for its
   assigned renderer, and the renderer falls back to a visible red error
   rather than a diagram — caught live while rendering this documentation's
   own 18-scene lesson, not a hypothetical.** Two real, reproduced cases from
-  that one render: the "Voltage Is the Push" concept's explanation beat was
-  assigned the `mermaid` renderer per `SUBJECT_VISUAL_RULES` (physics
-  default), but the model returned raw HTML markup
-  (`<div style='font-family:monospace;...'>...`) instead of Mermaid
-  diagram syntax — `lib/video/visuals/mermaid.ts` catches the resulting
-  parse failure and renders `"Diagram could not be rendered: ..."` in red
-  rather than crashing the pipeline, so the lesson still plays end to end,
-  just with a broken visual for that one scene. Separately, the "Ohm's Law"
-  concept's worked example was assigned `katex` (physics's `example`
-  override), but the model wrapped its LaTeX in literal `$$...$$` display-math
-  delimiters (`$$V = I R \quad\text{and}\quad I = \frac{V}{R}$$`) instead of
-  raw LaTeX source — KaTeX (`throwOnError: false`) renders its own inline
-  parse-error text in red rather than the equation. Both renderers'
-  defensive fallback did exactly what it's designed to do (degrade
-  visibly, never throw and break the render), but the *content* prompt for
+  that one render, both on `katex`-assigned worked-example beats (physics's
+  `example` override in `SUBJECT_VISUAL_RULES`): on the "Voltage Is the
+  Push" concept, the model returned raw HTML markup
+  (`<div style='font-family:monospace;...'>...`) instead of LaTeX source —
+  KaTeX, configured `throwOnError: false`, prints that content in red where
+  the equation should be rather than throwing, so the lesson still plays end
+  to end, just with a broken visual for that one scene. That is the frame
+  captured above. Separately, the "Ohm's Law" concept's worked example came
+  back with its LaTeX wrapped in literal `$$...$$` display-math delimiters
+  (`$$V = I R \quad\text{and}\quad I = \frac{V}{R}$$`) instead of raw LaTeX
+  source, hitting the same fallback. The renderer's defensive fallback did
+  exactly what it's designed to do (degrade visibly, never throw and break
+  the render), but the *content* prompt for
   both `script.ts` and `adapt.ts` does not currently enforce "raw source
   only, no delimiters/markup" strongly enough to prevent this on every
   call — it happened on roughly 2 of 18 scenes in this one real run. A
@@ -57,9 +57,13 @@ not staged.*
 - **No real illustrative art.** Labelled diagrams are a generic geometric
   schematic (blob/rect/circle + leader lines), not anatomically or
   scientifically accurate artwork — there is no image-generation credential.
-  The `image` visual renderer only ever displays material actually supplied
-  in the lesson's own content (e.g. an image lifted from a parsed slide),
-  never a generated one.
+  An `image` visual renderer exists as a content contract in the types and
+  rendering layer (`VisualSpec`, `lib/video/visuals/`), but nothing in this
+  branch reaches it: no entry in `SUBJECT_VISUAL_RULES`
+  (`lib/teach/script.ts`) ever selects `renderer: "image"`, and no document
+  parser (`lib/documents/`, including `parsePptx.ts`) extracts images from an
+  upload. No imagery — uploaded or generated — appears in a rendered lesson
+  today.
 - **Mermaid diagrams reveal as a single entrance, not node-by-node** —
   Mermaid's internal SVG shape varies too much per diagram type for reliable
   staggered reveal.
