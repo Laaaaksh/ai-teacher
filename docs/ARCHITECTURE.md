@@ -486,8 +486,13 @@ appendix to it.
   disk** (`lib/documents/storage.ts`, `data/uploads/`, gitignored) — it
   re-parses the source file rather than reconstructing structure from
   already-chunked text. If that file is ever missing (moved/deployed
-  environment without it), `GET /api/documents/[id]/outline` returns 409
-  rather than silently fabricating an outline.
+  environment without it, or a DB reset that wasn't paired with clearing
+  `data/uploads/` — hit for real while recording `docs/assets/demo.mp4`, see
+  `scripts/record-demo/README.md`), `GET /api/documents/[id]/outline`
+  returns 409 rather than silently fabricating an outline — honest, but a
+  real dead end a judge could hit after indexing succeeds and reports the
+  document "ready": the chunks that already exist in the DB would be enough
+  to outline from, but that fallback path doesn't exist yet.
 - **PDF chapter titles can be truncated.** Chapter detection for PDF/PPTX
   looks for a "Chapter N"/"Unit N" marker in a section's first line
   (`lib/rag/outline.ts`'s `chapterMarkerIn`). Real PDFs typically have a

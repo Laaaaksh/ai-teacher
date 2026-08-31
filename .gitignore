@@ -48,3 +48,5 @@ data/*.sqlite-wal
 data/*.sqlite-shm
 *.sqlite
 *.sqlite-journal
+.scratch/
+scripts/record-demo/output/
