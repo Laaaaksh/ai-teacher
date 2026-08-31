@@ -150,9 +150,9 @@ below) and no longer resembles either style.*
   the source's real paragraph/heading boundaries and overlap each other. It
   is returned uncached, so restoring the file yields the exact outline on
   the next request. Only a document with neither the file nor any chunks
-  returns 409, and such a document is now
-  also flagged `available: false` in the document listing so it isn't
-  offered as a selectable source in the first place.
+  returns 409, and such a document is now also flagged `available: false` in
+  the document listing so it isn't offered as a selectable source in the
+  first place.
 - **PDF chapter titles can be hard-truncated at 80 characters** when a PDF's
   heading and body text merge into one "line" during parsing (observed with
   some programmatically generated PDFs, reproduced by this project's own
