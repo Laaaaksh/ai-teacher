@@ -39,6 +39,7 @@ export async function chat(req: ChatCompletionRequest): Promise<ChatCompletionRe
       temperature: req.temperature ?? 0.7,
       ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
     },
+    ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}),
   });
 
   const choice = raw.choices?.[0];
@@ -74,6 +75,7 @@ export interface JsonRequest {
   messages: ChatMessage[];
   maxTokens?: number;
   temperature?: number;
+  timeoutMs?: number;
 }
 
 /**
@@ -92,6 +94,7 @@ export async function json<T>(schema: z.ZodType<T>, req: JsonRequest): Promise<T
       maxTokens: req.maxTokens,
       temperature: req.temperature ?? 0.2,
       responseFormat: { type: "json_object" },
+      timeoutMs: req.timeoutMs,
     });
 
     let parsed: unknown;

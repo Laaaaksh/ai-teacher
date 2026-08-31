@@ -1,4 +1,4 @@
-export { getDb, resetDbForTests } from "./connection";
+export { getDb, resetDbForTests, runInTransaction } from "./connection";
 export * from "./types";
 
 export * from "./accessors/learners";
@@ -12,3 +12,4 @@ export * from "./accessors/studentAnswers";
 export * from "./accessors/assessmentReports";
 export * from "./accessors/conceptProgress";
 export * from "./accessors/learningPaths";
+export * from "./accessors/adaptationState";

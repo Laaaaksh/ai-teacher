@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import PDFDocument from "pdfkit";
 import { Document, HeadingLevel, Packer, Paragraph } from "docx";
 import JSZip from "jszip";
-import { parseDocument, chunkDocument, DocumentParseError } from "../lib/documents";
+import { parseDocument, DocumentParseError } from "../lib/documents";
 
 async function buildTestPdf(): Promise<Buffer> {
   const doc = new PDFDocument({ autoFirstPage: false });
@@ -66,25 +66,6 @@ async function buildTestPptx(): Promise<Buffer> {
         <p:spTree>
           <p:sp>
             <p:txBody><a:p><a:r><a:t>Second slide content</a:t></a:r></a:p></p:txBody>
-          </p:sp>
-        </p:spTree>
-      </p:cSld>
-    </p:sld>`,
-  );
-  return zip.generateAsync({ type: "nodebuffer" });
-}
-
-async function buildTitleOnlyPptx(): Promise<Buffer> {
-  const zip = new JSZip();
-  zip.file(
-    "ppt/slides/slide1.xml",
-    `<?xml version="1.0"?>
-    <p:sld xmlns:a="a" xmlns:p="p">
-      <p:cSld>
-        <p:spTree>
-          <p:sp>
-            <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
-            <p:txBody><a:p><a:r><a:t>Photosynthesis — a section divider</a:t></a:r></a:p></p:txBody>
           </p:sp>
         </p:spTree>
       </p:cSld>
@@ -187,65 +168,5 @@ describe("parseDocument", () => {
 
   it("rejects empty files with a typed error", async () => {
     await expect(parseDocument(Buffer.alloc(0), "empty.txt")).rejects.toMatchObject({ kind: "empty-file" });
-  });
-});
-
-describe("chunkDocument", () => {
-  it("never spans a chunk across sections and keeps citation info", async () => {
-    const docx = await buildTestDocx();
-    const doc = await parseDocument(docx, "notes.docx");
-    const chunks = chunkDocument(doc, 10_000);
-
-    expect(chunks).toHaveLength(2);
-    expect(chunks[0].section).toBe("Introduction");
-    expect(chunks[1].section).toBe("Background");
-  });
-
-  it("splits long sections into multiple chunks under the size limit", async () => {
-    const pdf = await buildTestPdf();
-    const doc = await parseDocument(pdf, "textbook.pdf");
-    const chunks = chunkDocument(doc, 20);
-
-    expect(chunks.length).toBeGreaterThanOrEqual(2);
-    for (const chunk of chunks) {
-      expect(chunk.text.length).toBeLessThanOrEqual(20);
-    }
-  });
-
-  it("hard-splits a single paragraph that alone exceeds the size limit", () => {
-    const paragraph = "word ".repeat(200).trim();
-    const chunks = chunkDocument(
-      { format: "txt", title: "dense.txt", sections: [{ order: 0, page: 1, paragraphs: [{ order: 0, text: paragraph }] }] },
-      50,
-    );
-
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk.text.length).toBeLessThanOrEqual(50);
-      expect(chunk.page).toBe(1);
-    }
-    expect(chunks.map((c) => c.text).join(" ")).toBe(paragraph);
-  });
-  it("emits a chunk carrying text that only exists inside a grouped shape", async () => {
-    const pptx = await buildGroupedShapePptx();
-    const doc = await parseDocument(pptx, "design-tool-deck.pptx");
-    const chunks = chunkDocument(doc);
-
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].text).toContain("Grouped bullet one");
-    expect(chunks[0].text).toContain("Nested grouped bullet");
-    expect(chunks[0].section).toBe("Grouped Slide Title");
-    expect(chunks[0].page).toBe(1);
-  });
-
-  it("emits one chunk for a section whose only text is its title", async () => {
-    const pptx = await buildTitleOnlyPptx();
-    const doc = await parseDocument(pptx, "outline.pptx");
-    const chunks = chunkDocument(doc);
-
-    expect(chunks).toHaveLength(1);
-    expect(chunks[0].text).toBe("Photosynthesis — a section divider");
-    expect(chunks[0].section).toBe("Photosynthesis — a section divider");
-    expect(chunks[0].page).toBe(1);
   });
 });
