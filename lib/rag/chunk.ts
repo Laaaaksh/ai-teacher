@@ -1,10 +1,10 @@
 import type { DocumentChunk, ParsedDocument, ParsedSection } from "../documents/types";
 
 /**
- * Retrieval-sized chunking for the RAG slice. Distinct from
- * lib/documents/chunk.ts (the foundation's citation-preserving chunker used
- * at upload time) in two ways this slice needs and that one doesn't have:
- * chunks overlap across a semantic boundary (so a fact split across two
+ * Retrieval-sized chunking for the RAG slice, and the only chunker the
+ * upload route uses. It replaced the foundation's citation-preserving
+ * chunker, differing from it in two ways this slice needs and that one
+ * didn't have: chunks overlap across a semantic boundary (so a fact split across two
  * paragraphs is still fully present in at least one chunk), and multi-level
  * headings (DOCX/Markdown) are folded into a breadcrumb `section` string
  * ("Chapter 4 > Ohm's Law") instead of just the immediate heading, so a

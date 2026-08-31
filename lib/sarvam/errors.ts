@@ -7,7 +7,12 @@ export type SarvamErrorKind =
   | "truncated"
   | "empty-content"
   | "invalid-json"
-  | "invalid-schema";
+  | "invalid-schema"
+  /** A successful HTTP response whose BODY wasn't JSON — a transport/gateway
+   * failure, distinct from `invalid-json` (the model's own output wasn't
+   * parseable). Only the latter is worth re-asking; re-POSTing this one bills
+   * a request Sarvam already processed. */
+  | "invalid-response-body";
 
 export class SarvamError extends Error {
   readonly kind: SarvamErrorKind;

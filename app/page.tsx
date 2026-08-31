@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { clearStoredLearnerProfileId, getStoredLearnerProfileId, setStoredLearnerProfileId } from "@/lib/client/learner";
 
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 const DEPTHS = ["overview", "standard", "deep"] as const;
@@ -18,11 +20,6 @@ const LANGUAGES = [
   { code: "pa-IN", label: "Punjabi" },
 ] as const;
 
-interface SavedProfile {
-  id: string;
-  name: string;
-}
-
 interface UploadedDocument {
   id: string;
   title: string;
@@ -30,79 +27,338 @@ interface UploadedDocument {
   pageCount: number | null;
 }
 
-export default function Home() {
-  return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-10 px-6 py-16">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">AI Teacher</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          Tell us about the learner, then upload material or name a topic. The lesson planner and video
-          player build on what you set up here.
-        </p>
-      </header>
-
-      <LearnerProfileForm />
-      <MaterialSection />
-    </main>
-  );
+interface TeachingIntent {
+  topic: string;
+  level: (typeof LEVELS)[number];
+  language: string;
+  minutesAvailable: number;
+  depth: (typeof DEPTHS)[number];
+  style: string;
+  wantsQuestions: boolean;
+  wantsFinalAssessment: boolean;
+  schedule?: { totalSessions: number; minutesPerSession: number };
+  rawInstruction: string;
 }
 
-function LearnerProfileForm() {
-  const [name, setName] = useState("");
-  const [level, setLevel] = useState<(typeof LEVELS)[number]>("beginner");
-  const [priorKnowledge, setPriorKnowledge] = useState("");
-  const [goal, setGoal] = useState("");
-  const [style, setStyle] = useState("");
-  const [language, setLanguage] = useState("en-IN");
-  const [minutesAvailable, setMinutesAvailable] = useState(20);
-  const [depth, setDepth] = useState<(typeof DEPTHS)[number]>("standard");
+type Stage = "input" | "understanding" | "confirm" | "starting";
 
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+const EXAMPLE_INSTRUCTION =
+  'e.g. "I am a beginner. Teach me Chapter 4 in 20 minutes. Explain it in Hindi using simple examples. Ask me questions during the lesson and test me at the end."';
+
+export default function Home() {
+  const router = useRouter();
+  const [stage, setStage] = useState<Stage>("input");
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<SavedProfile | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setStatus("saving");
+  const [file, setFile] = useState<File | null>(null);
+  const [document, setDocument] = useState<UploadedDocument | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
+  const [indexProgress, setIndexProgress] = useState<{ total: number; embedded: number; done: boolean } | null>(null);
+
+  const [topic, setTopic] = useState("");
+  const [instruction, setInstruction] = useState("");
+
+  const [intent, setIntent] = useState<TeachingIntent | null>(null);
+  const [learnerProfileId, setLearnerProfileId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setLearnerProfileId(getStoredLearnerProfileId());
+  }, []);
+
+  // Poll indexing progress for whatever document was just uploaded — honest progress, not a blocking spinner.
+  useEffect(() => {
+    if (!document) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    async function poll() {
+      try {
+        const res = await fetch(`/api/documents/${document!.id}/index`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setIndexProgress(data);
+        if (!data.done) timer = setTimeout(poll, 1200);
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 1500);
+      }
+    }
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [document]);
+
+  async function handleFileChosen(chosen: File | null) {
+    setFile(chosen);
+    setDocument(null);
+    setIndexProgress(null);
+    if (!chosen) return;
+
+    setUploadStatus("uploading");
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", chosen);
+      const res = await fetch("/api/documents", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to upload document.");
+      setDocument(data.document);
+      setUploadStatus("uploaded");
+    } catch (err) {
+      setError((err as Error).message);
+      setUploadStatus("error");
+    }
+  }
+
+  function forgetLearnerProfile() {
+    clearStoredLearnerProfileId();
+    setLearnerProfileId(null);
+  }
+
+  async function handleUnderstand() {
+    if (!instruction.trim()) {
+      setError("Tell the AI Teacher how you'd like to be taught first.");
+      return;
+    }
+    if (!document && !topic.trim() && !/chapter|unit|topic/i.test(instruction)) {
+      setError("Upload material or name a topic — the AI Teacher needs something to teach.");
+      return;
+    }
+
+    setStage("understanding");
+    setError(null);
+    try {
+      const parse = (profileId: string | null) =>
+        fetch("/api/teach/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instruction, learnerProfileId: profileId ?? undefined }),
+        });
+
+      let res = await parse(learnerProfileId);
+      /* The remembered profile lives in a local DB file that can be reset out
+       * from under the browser; a dead id must not wedge the entry screen. */
+      if (res.status === 404 && learnerProfileId) {
+        forgetLearnerProfile();
+        res = await parse(null);
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Couldn't understand that instruction.");
+
+      const parsedIntent: TeachingIntent = data.intent;
+      if (!parsedIntent.topic && topic.trim()) parsedIntent.topic = topic.trim();
+      setIntent(parsedIntent);
+      setStage("confirm");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("input");
+    }
+  }
+
+  async function handleStartLesson() {
+    if (!intent) return;
+    setStage("starting");
     setError(null);
 
     try {
-      const res = await fetch("/api/profile", {
+      let profileId = learnerProfileId;
+      const profileFields = {
+        level: intent.level,
+        language: intent.language,
+        minutesAvailable: intent.minutesAvailable,
+        depth: intent.depth,
+        style: intent.style,
+      };
+
+      if (profileId) {
+        const patched = await fetch(`/api/profile/${profileId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileFields),
+        }).catch(() => undefined);
+        // The remembered profile is gone from the local DB — every later call would 404 on it, so start a fresh learner.
+        if (patched?.status === 404) {
+          forgetLearnerProfile();
+          profileId = null;
+        }
+      }
+
+      if (!profileId) {
+        const res = await fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Learner", priorKnowledge: "", goal: "", ...profileFields }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to create learner profile.");
+        profileId = data.profile.id as string;
+        setStoredLearnerProfileId(profileId!);
+        setLearnerProfileId(profileId);
+      }
+
+      if (intent.schedule) {
+        const res = await fetch("/api/teach/paths", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            learnerProfileId: profileId,
+            topic: intent.topic || "General study plan",
+            mode: "multi-day",
+            totalSessions: intent.schedule.totalSessions,
+            minutesPerSession: intent.schedule.minutesPerSession,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to build the learning path.");
+        router.push(`/paths/${data.path.id}`);
+        return;
+      }
+
+      const res = await fetch("/api/teach/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, level, priorKnowledge, goal, style, language, minutesAvailable, depth }),
+        body: JSON.stringify({
+          learnerProfileId: profileId,
+          topic: intent.topic || "General overview",
+          sourceDocumentId: document?.id,
+          sectionHint: document ? intent.topic : undefined,
+          totalMinutes: intent.minutesAvailable,
+          depth: intent.depth,
+          language: intent.language,
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to save profile.");
+      if (!res.ok) throw new Error(data.error ?? "Failed to plan the lesson.");
 
-      setSaved({ id: data.profile.id, name: data.profile.name });
-      setStatus("saved");
+      router.push(`/learn/${data.session.id}`);
     } catch (err) {
       setError((err as Error).message);
-      setStatus("error");
+      setStage("confirm");
     }
   }
 
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-50">Learner profile</h2>
-      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-        This is what the AI Teacher uses to pitch the lesson at the right level and pace.
-      </p>
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">AI Teacher</h1>
+        <p className="text-neutral-600 dark:text-neutral-400">
+          Upload what you want to learn, or name a topic — then tell it how you want to be taught, in your own words.
+        </p>
+      </header>
 
-      <form onSubmit={handleSubmit} className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Name">
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="input"
-            placeholder="e.g. Aditi"
-          />
+      {(stage === "input" || stage === "understanding") && (
+        <section className="flex flex-col gap-6 rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label">Upload material</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.pptx,.txt,.md,.markdown"
+                onChange={(e) => handleFileChosen(e.target.files?.[0] ?? null)}
+                className="input"
+                disabled={uploadStatus === "uploading"}
+              />
+              {uploadStatus === "uploading" && <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Parsing {file?.name}…</p>}
+              {uploadStatus === "uploaded" && document && (
+                <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                  Parsed &ldquo;{document.title}&rdquo;{indexProgress && !indexProgress.done ? ` — indexing ${indexProgress.embedded}/${indexProgress.total}…` : indexProgress?.done ? " — indexed." : ""}
+                </p>
+              )}
+              {uploadStatus === "error" && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+            </div>
+            <div>
+              <label className="label">Or name a topic</label>
+              <input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                className="input"
+                placeholder="e.g. Newton's Laws"
+                disabled={!!document}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">How should the AI Teacher teach you?</label>
+            <textarea
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              className="input mt-1.5 min-h-32"
+              placeholder={EXAMPLE_INSTRUCTION}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+          <button
+            type="button"
+            onClick={handleUnderstand}
+            disabled={stage === "understanding"}
+            className="btn-primary self-start"
+          >
+            {stage === "understanding" ? "Understanding…" : "Understand my request"}
+          </button>
+        </section>
+      )}
+
+      {stage === "confirm" && intent && (
+        <ConfirmIntent
+          intent={intent}
+          onChange={setIntent}
+          hasDocument={!!document}
+          onBack={() => setStage("input")}
+          onConfirm={handleStartLesson}
+          error={error}
+        />
+      )}
+
+      {stage === "starting" && (
+        <section className="rounded-xl border border-neutral-200 bg-white p-6 text-center shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            {intent?.schedule ? "Building your learning path…" : "Planning your lesson — this takes about a minute…"}
+          </p>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function ConfirmIntent({
+  intent,
+  onChange,
+  hasDocument,
+  onBack,
+  onConfirm,
+  error,
+}: {
+  intent: TeachingIntent;
+  onChange: (i: TeachingIntent) => void;
+  hasDocument: boolean;
+  onBack: () => void;
+  onConfirm: () => void;
+  error: string | null;
+}) {
+  function set<K extends keyof TeachingIntent>(key: K, value: TeachingIntent[K]) {
+    onChange({ ...intent, [key]: value });
+  }
+
+  return (
+    <section className="flex flex-col gap-6 rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <div>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-50">Here&apos;s what I understood</h2>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Correct anything before the lesson is built.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label={hasDocument ? "Chapter / section" : "Topic"}>
+          <input value={intent.topic} onChange={(e) => set("topic", e.target.value)} className="input" placeholder="e.g. Chapter 4" />
         </Field>
-
         <Field label="Level">
-          <select value={level} onChange={(e) => setLevel(e.target.value as typeof level)} className="input">
+          <select value={intent.level} onChange={(e) => set("level", e.target.value as TeachingIntent["level"])} className="input">
             {LEVELS.map((l) => (
               <option key={l} value={l}>
                 {l[0].toUpperCase() + l.slice(1)}
@@ -110,36 +366,18 @@ function LearnerProfileForm() {
             ))}
           </select>
         </Field>
-
-        <Field label="Goal" className="sm:col-span-2">
+        <Field label="Minutes">
           <input
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
+            type="number"
+            min={1}
+            max={180}
+            value={intent.minutesAvailable}
+            onChange={(e) => set("minutesAvailable", Number(e.target.value))}
             className="input"
-            placeholder="e.g. pass a Class 10 board exam"
           />
         </Field>
-
-        <Field label="Prior knowledge" className="sm:col-span-2">
-          <textarea
-            value={priorKnowledge}
-            onChange={(e) => setPriorKnowledge(e.target.value)}
-            className="input min-h-20"
-            placeholder="What does the learner already know about this?"
-          />
-        </Field>
-
-        <Field label="Preferred style">
-          <input
-            value={style}
-            onChange={(e) => setStyle(e.target.value)}
-            className="input"
-            placeholder="e.g. analogy-heavy, example-driven"
-          />
-        </Field>
-
-        <Field label="Teaching language">
-          <select value={language} onChange={(e) => setLanguage(e.target.value)} className="input">
+        <Field label="Language">
+          <select value={intent.language} onChange={(e) => set("language", e.target.value)} className="input">
             {LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
                 {l.label}
@@ -147,20 +385,8 @@ function LearnerProfileForm() {
             ))}
           </select>
         </Field>
-
-        <Field label="Minutes available">
-          <input
-            type="number"
-            min={1}
-            max={10080}
-            value={minutesAvailable}
-            onChange={(e) => setMinutesAvailable(Number(e.target.value))}
-            className="input"
-          />
-        </Field>
-
         <Field label="Depth">
-          <select value={depth} onChange={(e) => setDepth(e.target.value as typeof depth)} className="input">
+          <select value={intent.depth} onChange={(e) => set("depth", e.target.value as TeachingIntent["depth"])} className="input">
             {DEPTHS.map((d) => (
               <option key={d} value={d}>
                 {d[0].toUpperCase() + d.slice(1)}
@@ -168,105 +394,51 @@ function LearnerProfileForm() {
             ))}
           </select>
         </Field>
+        <Field label="Style">
+          <input value={intent.style} onChange={(e) => set("style", e.target.value)} className="input" placeholder="e.g. simple examples" />
+        </Field>
+      </div>
 
-        <div className="sm:col-span-2 flex items-center gap-3 pt-2">
-          <button type="submit" disabled={status === "saving"} className="btn-primary">
-            {status === "saving" ? "Saving…" : "Save profile"}
-          </button>
-          {status === "saved" && saved && (
-            <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved as {saved.name}.</span>
-          )}
-          {status === "error" && error && <span className="text-sm text-red-600 dark:text-red-400">{error}</span>}
-        </div>
-      </form>
-    </section>
-  );
-}
+      {intent.schedule && (
+        <p className="rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+          This reads as a multi-day plan: {intent.schedule.totalSessions} sessions of {intent.schedule.minutesPerSession} minutes each. The AI
+          Teacher will build a learning path instead of a single lesson.
+        </p>
+      )}
 
-function MaterialSection() {
-  const [topic, setTopic] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<"idle" | "uploading" | "uploaded" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [uploaded, setUploaded] = useState<UploadedDocument | null>(null);
-  const [chunkCount, setChunkCount] = useState(0);
+      {/* Both are always-on: every concept gets a checkpoint question (lib/teach/session.ts's fixed
+          per-concept beats) and every lesson ends in the final check, whatever the instruction asked
+          for — so these state what will happen rather than offering a choice the lesson can't honour. */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        <Badge>Asks you a question after every concept</Badge>
+        <Badge>Tests you at the end of the lesson</Badge>
+      </div>
 
-  async function handleUpload() {
-    if (!file) return;
-    setStatus("uploading");
-    setError(null);
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/documents", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to upload document.");
-
-      setUploaded(data.document);
-      setChunkCount(data.chunkCount);
-      setStatus("uploaded");
-    } catch (err) {
-      setError((err as Error).message);
-      setStatus("error");
-    }
-  }
-
-  return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-50">Material or topic</h2>
-      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-        Upload a book, PDF, DOCX, PPTX, or notes — or just name a topic to teach from scratch.
-      </p>
-
-      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-        <div>
-          <label className="label">Upload material</label>
-          <input
-            type="file"
-            accept=".pdf,.docx,.pptx,.txt,.md,.markdown"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="input"
-          />
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={!file || status === "uploading"}
-            className="btn-secondary mt-3"
-          >
-            {status === "uploading" ? "Uploading…" : "Upload"}
-          </button>
-
-          {status === "uploaded" && uploaded && (
-            <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">
-              Parsed &ldquo;{uploaded.title}&rdquo; ({uploaded.format.toUpperCase()}
-              {uploaded.pageCount ? `, ${uploaded.pageCount} pages` : ""}) into {chunkCount} citable chunks.
-            </p>
-          )}
-          {status === "error" && error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
-        </div>
-
-        <div>
-          <label className="label">Or name a topic</label>
-          <input
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            className="input"
-            placeholder="e.g. Newton's Laws for a Class 8 student"
-          />
-          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-            The lesson planner picks this up in the next build. Set your profile and material above so it&apos;s
-            ready to go.
-          </p>
-        </div>
+      <div className="flex gap-3">
+        <button type="button" onClick={onBack} className="btn-secondary">
+          Back
+        </button>
+        <button type="button" onClick={onConfirm} className="btn-primary">
+          Looks good — build my lesson
+        </button>
       </div>
     </section>
   );
 }
 
-function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
+function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <label className={`flex flex-col gap-1.5 ${className ?? ""}`}>
+    <span className="rounded-full bg-neutral-100 px-3 py-1 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+      {children}
+    </span>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1.5">
       <span className="label">{label}</span>
       {children}
     </label>

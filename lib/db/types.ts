@@ -62,6 +62,8 @@ export interface DocumentOutlineRow {
 
 export type LessonSessionStatus = "active" | "completed" | "abandoned";
 
+export type ScriptingStatus = "pending" | "in_progress" | "ready" | "partial" | "failed";
+
 export interface LessonSessionRow {
   id: string;
   learnerProfileId: string;
@@ -74,6 +76,10 @@ export interface LessonSessionRow {
   currentSceneOrder: number;
   startedAt: string;
   completedAt: string | null;
+  /** POST /api/teach/sessions returns as soon as planning finishes; scripting runs in the background and a caller polls this field via GET /api/teach/sessions/:id. */
+  scriptingStatus: ScriptingStatus;
+  /** Set when scriptingStatus is 'partial' or 'failed' — names which concepts failed and why. */
+  scriptingError: string | null;
 }
 
 export interface LessonPlanRow {
@@ -171,6 +177,21 @@ export interface LearningPathRow {
   topic: string;
   steps: LearningPathStep[];
   currentStepIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type VideoJobStatus = "queued" | "narrating" | "rendering" | "muxing" | "completed" | "failed";
+
+export interface VideoJobRow {
+  id: string;
+  lessonPlanId: string;
+  personaId: string;
+  status: VideoJobStatus;
+  progressPercent: number;
+  stageDetail: string | null;
+  outputPath: string | null;
+  errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }

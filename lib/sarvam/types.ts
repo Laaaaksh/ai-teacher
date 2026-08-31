@@ -18,6 +18,8 @@ export interface ChatCompletionRequest {
   maxTokens?: number;
   temperature?: number;
   responseFormat?: { type: "json_object" };
+  /** Overrides DEFAULT_TIMEOUT_MS — a large maxTokens can genuinely take the reasoning model past 30s to finish reasoning_content plus content. */
+  timeoutMs?: number;
 }
 
 export interface ChatCompletionResult {

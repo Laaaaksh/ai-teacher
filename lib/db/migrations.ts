@@ -193,4 +193,60 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: "concept adaptation state",
+    sql: `
+      -- Per (session, concept) memory of which analogies the teaching engine
+      -- has already spent re-explaining this concept, so adapt.ts never
+      -- reuses one. attempt_count/current_difficulty let adaptation escalate
+      -- (harder question, or drop to a prerequisite) across repeated misses.
+      CREATE TABLE concept_adaptation_state (
+        lesson_session_id    TEXT NOT NULL REFERENCES lesson_sessions(id) ON DELETE CASCADE,
+        concept_id           TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+        used_analogies_json  TEXT NOT NULL DEFAULT '[]',
+        attempt_count        INTEGER NOT NULL DEFAULT 0,
+        current_difficulty   INTEGER NOT NULL DEFAULT 2,
+        updated_at           TEXT NOT NULL,
+        PRIMARY KEY (lesson_session_id, concept_id)
+      );
+      CREATE INDEX idx_concept_adaptation_state_session ON concept_adaptation_state(lesson_session_id);
+    `,
+  },
+  {
+    version: 4,
+    name: "session scripting status",
+    sql: `
+      -- POST /api/teach/sessions now returns as soon as PLANNING finishes;
+      -- per-concept SCRIPTING (the slow, LLM-heavy part) runs in the
+      -- background and a caller polls GET /api/teach/sessions/:id for this
+      -- status rather than blocking on one multi-minute request.
+      ALTER TABLE lesson_sessions ADD COLUMN scripting_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (scripting_status IN ('pending','in_progress','ready','partial','failed'));
+      ALTER TABLE lesson_sessions ADD COLUMN scripting_error TEXT;
+    `,
+  },
+  {
+    version: 5,
+    name: "video jobs",
+    sql: `
+      -- One row per teaching-video render, tracking a real in-process
+      -- render pipeline (narration -> per-scene frame capture -> ffmpeg
+      -- mux -> concat). progress_percent/stage_detail are updated live so a
+      -- client can poll honest progress rather than a fake spinner.
+      CREATE TABLE video_jobs (
+        id                TEXT PRIMARY KEY,
+        lesson_plan_id    TEXT NOT NULL REFERENCES lesson_plans(id) ON DELETE CASCADE,
+        persona_id        TEXT NOT NULL,
+        status            TEXT NOT NULL CHECK (status IN ('queued','narrating','rendering','muxing','completed','failed')),
+        progress_percent  REAL NOT NULL DEFAULT 0,
+        stage_detail      TEXT,
+        output_path       TEXT,
+        error_message     TEXT,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      );
+      CREATE INDEX idx_video_jobs_lesson_plan ON video_jobs(lesson_plan_id);
+    `,
+  },
 ];

@@ -6,7 +6,6 @@ import { parsePptx } from "./parsePptx";
 import { parseText } from "./parseText";
 import type { ParsedDocument } from "./types";
 
-export { chunkDocument } from "./chunk";
 export { DocumentParseError } from "./errors";
 export type { DocumentErrorKind } from "./errors";
 export { saveUploadedFile, readUploadedFile } from "./storage";

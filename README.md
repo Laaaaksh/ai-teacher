@@ -14,18 +14,24 @@ Built for the Bharat Academix AI Innovation Hackathon 2026, Round 2.
 ```bash
 npm install
 cp .env.example .env.local   # fill in SARVAM_API_KEY
+npx playwright install chromium   # one-time: teaching-video generation needs a real browser to render into
 npm run dev
 ```
 
-Requires Node 20+. No database server, vector DB, or other paid API is needed —
-SQLite lives on disk at `data/ai-teacher.sqlite` and is created automatically on
-first run. Retrieval embeddings also run locally: the first document you index
-downloads a ~23MB MiniLM model to `.cache/transformers/` (gitignored), so that
-one run needs network; every run after it is offline.
+Requires Node 20+, and `ffmpeg` on `PATH` (used as a subprocess to mux teaching
+videos — `brew install ffmpeg` / `apt install ffmpeg`). No database server,
+vector DB, or other paid API is needed — SQLite lives on disk at
+`data/ai-teacher.sqlite` and is created automatically on first run. Retrieval
+embeddings run locally too: the first document you index downloads a ~23MB
+MiniLM model to `.cache/transformers/` (gitignored), so that one run needs
+network; every run after it is offline. See `docs/VIDEO.md` for why the
+video-generation slice needs Playwright's browser downloaded separately from
+`npm install`.
 
-Open http://localhost:3000 for the learner-profile and upload entry point, or
-http://localhost:3000/rag-demo to upload a document and watch indexing → outline
-→ grounded question answering with citations.
+Open http://localhost:3000 for the student experience — upload material or
+name a topic, describe how you want to be taught, and watch a real teaching
+video with checkpoints — or http://localhost:3000/rag-demo to exercise
+indexing → outline → grounded question answering with citations on its own.
 
 ## Scripts
 
@@ -44,9 +50,21 @@ No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
 and `npm run build` locally before pushing.
 
-See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and database
-schema. This repository is built up in slices. Shipped so far: the app scaffold,
-the Sarvam client, document ingestion, persistence and shared types, plus the RAG
-and knowledge-grounding layer (local embeddings, hybrid BM25 + dense retrieval,
-cited answers or an honest refusal, cross-language querying, and chapter/concept
-extraction). Still to come: lesson planning, the lesson player, video generation.
+## What works today
+
+The full loop from the home page works end to end: upload material or name a
+topic, describe how you want to be taught in your own words, review the
+lesson plan (concepts, minutes, and the visual chosen for each one with its
+reason), watch a real generated teaching video, answer a checkpoint by typing
+or voice, watch it visibly re-explain with a different analogy when you're
+wrong, interrupt to ask anything or switch language mid-lesson, finish a
+quiz, and read a report naming your actual weak areas. `/progress` tracks
+mastery and past sessions across visits. See "The student experience" in
+`docs/ARCHITECTURE.md` for how the pieces fit together, and "The teaching
+engine" for the `/api/teach/*` surface it's built on (`POST /sessions`
+returns once the lesson is *planned*; scripting finishes in the background,
+polled via `scriptingStatus`). `/rag-demo` exercises retrieval and grounding
+on their own; `docs/VIDEO.md` covers the video-generation pipeline.
+
+See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
+database schema.

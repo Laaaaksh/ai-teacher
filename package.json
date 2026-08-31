@@ -20,11 +20,15 @@
     "cheerio": "^1.2.0",
     "fast-xml-parser": "^5.11.1",
     "jszip": "^3.10.1",
+    "katex": "^0.18.4",
     "mammoth": "^1.12.2",
+    "mermaid": "^11.17.2",
     "next": "^15.5.24",
     "pdf-parse": "^2.4.5",
+    "playwright": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "shiki": "^4.4.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -49,6 +53,7 @@
     "esbuild@0.28.2": true,
     "unrs-resolver@1.12.2": true,
     "fsevents@2.3.3": true,
-    "protobufjs@6.11.6": true
+    "protobufjs@6.11.6": true,
+    "sharp@0.32.6": true
   }
 }
