@@ -12,6 +12,7 @@ import type {
   VisualSpec,
 } from "../types";
 import type { DocumentFormat as DocFormat } from "../documents/types";
+import type { DocumentOutline } from "../rag/outline";
 
 // Row shapes returned by lib/db accessors. These mirror the SQL schema in
 // lib/db/migrations.ts (see docs/SCHEMA.md); JSON columns are already
@@ -47,7 +48,16 @@ export interface DocumentChunkRow {
   text: string;
   page: number | null;
   section: string | null;
+  /** Float32 vector (all-MiniLM-L6-v2, 384-dim) serialized as a little-endian BLOB; NULL until the RAG slice embeds it. */
+  embedding: Buffer | null;
   createdAt: string;
+}
+
+/** Stored output of lib/rag/outline.ts's chapter/concept extraction, one row per document. */
+export interface DocumentOutlineRow {
+  documentId: string;
+  outline: DocumentOutline;
+  generatedAt: string;
 }
 
 export type LessonSessionStatus = "active" | "completed" | "abandoned";

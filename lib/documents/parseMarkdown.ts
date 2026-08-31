@@ -16,12 +16,13 @@ export function parseMarkdown(text: string, title: string): ParsedDocument {
   const sections: ParsedSection[] = [];
   let sectionOrder = 0;
   let currentTitle: string | undefined;
+  let currentLevel: number | undefined;
   let buffer: string[] = [];
 
   const flush = () => {
     const body = buffer.join("\n").trim();
     if (currentTitle || body) {
-      sections.push({ order: sectionOrder, title: currentTitle, paragraphs: splitParagraphs(body) });
+      sections.push({ order: sectionOrder, title: currentTitle, level: currentLevel, paragraphs: splitParagraphs(body) });
       sectionOrder += 1;
     }
     buffer = [];
@@ -32,6 +33,7 @@ export function parseMarkdown(text: string, title: string): ParsedDocument {
     if (match) {
       flush();
       currentTitle = match[2].trim();
+      currentLevel = match[1].length;
     } else {
       buffer.push(line);
     }

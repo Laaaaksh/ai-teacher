@@ -179,4 +179,18 @@ export const migrations: Migration[] = [
       CREATE INDEX idx_learning_paths_learner ON learning_paths(learner_profile_id);
     `,
   },
+  {
+    version: 2,
+    name: "document outlines",
+    sql: `
+      -- One row per document: the RAG slice's chapter/concept extraction
+      -- (lib/rag/outline.ts), stored as a typed DocumentOutline (JSON) so the
+      -- lesson planner can answer "teach me Chapter 4" without recomputing it.
+      CREATE TABLE document_outlines (
+        document_id  TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+        outline_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];

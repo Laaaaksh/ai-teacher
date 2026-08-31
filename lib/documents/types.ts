@@ -22,6 +22,8 @@ export interface ParsedSection {
   order: number;
   /** Heading/slide-title text, when the format has one. */
   title?: string;
+  /** Heading depth (1 = h1/top-level), when the format has real heading levels (DOCX, Markdown). Unset for PDF pages and PPTX slides, which are flat. */
+  level?: number;
   /** 1-indexed page number (PDF) or slide number (PPTX). */
   page?: number;
   paragraphs: ParsedParagraph[];

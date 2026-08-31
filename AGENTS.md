@@ -13,16 +13,20 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   advisories that are an accepted tradeoff (Known limitations in
   `docs/ARCHITECTURE.md`).
 - `next.config.ts` sets `serverExternalPackages` for `better-sqlite3`,
-  `pdf-parse`, `pdfjs-dist`, and `mammoth`. Without this, `pdf-parse` (which
+  `pdf-parse`, `pdfjs-dist`, `mammoth`, `@xenova/transformers`,
+  `onnxruntime-node`, and `sharp`. Without this, `pdf-parse` (which
   bundles `pdfjs-dist`) breaks under Next's RSC webpack layer with
   `TypeError: Object.defineProperty called on non-object` — any new
   native-binding or CJS/ESM-interop-fragile package added under `lib/` should
   be added here too rather than debugged from scratch.
 - `SARVAM_API_KEY` is the only AI credential this project uses; `.env.example`
   documents it. Never invent a dependency on another paid API.
-- Native modules (`better-sqlite3`) need `npm approve-scripts <pkg>` in this
-  environment before `npm install` will run their build step — see the
-  `allowScripts` block in `package.json`.
+- Native modules (`better-sqlite3`, `protobufjs`) need `npm approve-scripts
+  <pkg>` in this environment before `npm install` will run their build
+  step — see the `allowScripts` block in `package.json`.
+- `lib/rag/embed.ts`'s embedding model (`Xenova/all-MiniLM-L6-v2`) downloads
+  once to `.cache/transformers/` (gitignored, ~23MB) on first use — needs
+  network the very first time; every run after that is offline.
 
 ## Structure
 
@@ -32,7 +36,20 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   calling `fetch()` against Sarvam directly.
 - `lib/documents/` — `parseDocument(buffer, filename)` dispatches by extension
   to a structure-preserving `ParsedDocument` (sections/pages → paragraphs);
-  `chunkDocument()` turns that into citable retrieval chunks.
+  `saveUploadedFile`/`readUploadedFile` (`data/uploads/`, gitignored) persist
+  the original bytes, needed because outline extraction re-parses them.
+- `lib/rag/` — the RAG/knowledge-grounding slice: `chunk.ts` (retrieval
+  chunking, overlap + heading breadcrumbs), `embed.ts` (local MiniLM
+  embeddings + `document_chunks.embedding` caching + indexing progress),
+  `bm25.ts` (lexical scoring), `retrieve.ts` (hybrid BM25+dense via RRF),
+  `ground.ts` (the seam other slices call: retrieve → answer with citations,
+  or refuse honestly — gated on a code-enforced cosine-similarity threshold,
+  not the LLM's judgement), `language.ts` (cross-language query translation),
+  `outline.ts` (chapter/concept/definition/example extraction, cached in
+  `document_outlines`). Full rationale and known limitations:
+  docs/ARCHITECTURE.md's "RAG slice — implemented" section.
+  `npm run eval:rag` runs a real end-to-end quality check against a
+  committed fixture (`evals/`) — see `evals/README.md`.
 - `lib/db/` — `getDb()` (migrates on first call) plus one accessor module per
   table under `lib/db/accessors/`. No raw SQL outside that directory.
 - `lib/types.ts` — the shared domain contracts (`LearnerProfile`, `LessonPlan`,

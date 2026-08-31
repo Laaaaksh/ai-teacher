@@ -33,7 +33,7 @@ export async function parseDocx(buffer: Buffer, title: string): Promise<ParsedDo
       if (tag && HEADING_TAGS.has(tag)) {
         pushCurrentIfNonEmpty();
         paragraphOrder = 0;
-        current = { order: sections.length, title: text, paragraphs: [] };
+        current = { order: sections.length, title: text, level: Number(tag[1]), paragraphs: [] };
         return;
       }
 
