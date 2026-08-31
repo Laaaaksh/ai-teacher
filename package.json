@@ -1,0 +1,51 @@
+{
+  "name": "ai-teacher",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
+    "fast-xml-parser": "^5.11.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.2",
+    "next": "^15.5.24",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20",
+    "@types/pdfkit": "^0.17.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "docx": "^9.7.1",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.24",
+    "pdfkit": "^0.20.2",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true,
+    "fsevents@2.3.3": true
+  }
+}

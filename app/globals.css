@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafaf9;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .label {
+    @apply text-sm font-medium text-neutral-700 dark:text-neutral-300;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900
+      placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none focus:ring-2 focus:ring-neutral-200
+      dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-neutral-600
+      dark:focus:ring-neutral-800;
+  }
+
+  .btn-primary {
+    @apply rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors
+      hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50
+      dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300;
+  }
+
+  .btn-secondary {
+    @apply rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-900 transition-colors
+      hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50
+      dark:border-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-800;
+  }
+}
