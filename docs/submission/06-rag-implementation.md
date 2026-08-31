@@ -142,10 +142,12 @@ Same document, a question it does not cover, same live run:
   ~16,000 characters of raw chunk text**, not a further semantic retrieval
   pass — fine for a typical chapter, truncated rather than intelligently
   summarized for a very long or un-sectioned document.
-- **Outline extraction needs the original upload on disk**
-  (`data/uploads/`, gitignored) since it re-parses the source file rather
-  than reconstructing structure from already-chunked text; if that file is
-  missing, the outline endpoint returns 409 rather than fabricating one.
+- **Outline extraction prefers the original upload on disk**
+  (`data/uploads/`, gitignored) since re-parsing the source file gives real
+  paragraph/heading boundaries; if that file is missing, it falls back to
+  rebuilding a usable-but-not-exact outline from the document's already-
+  embedded chunks, and only returns 409 when neither the file nor any
+  chunks exist.
 - Full list, including the PDF chapter-title truncation edge case
   reproduced by the eval fixture itself: `docs/ARCHITECTURE.md`'s Known
   limitations.

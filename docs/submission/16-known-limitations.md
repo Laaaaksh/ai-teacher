@@ -143,8 +143,14 @@ below) and no longer resembles either style.*
   characters of chunk text**, not a further semantic retrieval pass — fine
   for a typical chapter, truncated rather than intelligently summarized for
   a very long or un-sectioned document.
-- **Outline extraction needs the original upload on disk** — if that file is
-  ever missing, the endpoint returns 409 rather than fabricating an outline.
+- **Outline extraction prefers the original upload on disk, and falls back to
+  the document's embedded chunks when that file is gone** (moved checkout,
+  cleared cache dir, DB restored without `data/uploads/`) — the chunk-based
+  outline is usable but not exact, since retrieval chunks don't line up with
+  the source's real paragraph/heading boundaries. Only a document with
+  neither the file nor any chunks returns 409, and such a document is now
+  also flagged `available: false` in the document listing so it isn't
+  offered as a selectable source in the first place.
 - **PDF chapter titles can be hard-truncated at 80 characters** when a PDF's
   heading and body text merge into one "line" during parsing (observed with
   some programmatically generated PDFs, reproduced by this project's own

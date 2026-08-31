@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DocumentParseError, parseDocument, saveUploadedFile } from "@/lib/documents";
-import { listDocuments, saveDocument } from "@/lib/db";
+import { DocumentParseError, parseDocument, saveUploadedFile, uploadedFileExists } from "@/lib/documents";
+import { getIndexingProgress, listDocuments, saveDocument } from "@/lib/db";
 import { chunkForRetrieval, indexDocument } from "@/lib/rag";
 
 export const runtime = "nodejs";
@@ -69,5 +69,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ documents: listDocuments() });
+  // A document with neither a file on disk nor any embedded chunks has nothing
+  // outline extraction (or anything else) could use — flag it here so the client
+  // can grey it out instead of only finding out when it fails later.
+  const documents = listDocuments().map((document) => ({
+    ...document,
+    available: uploadedFileExists(document.id, document.format) || getIndexingProgress(document.id).total > 0,
+  }));
+  return NextResponse.json({ documents });
 }

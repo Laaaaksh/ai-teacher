@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { DocumentFormat } from "./types";
 
@@ -22,4 +23,9 @@ export async function saveUploadedFile(documentId: string, format: DocumentForma
 
 export async function readUploadedFile(documentId: string, format: DocumentFormat): Promise<Buffer> {
   return readFile(uploadPath(documentId, format));
+}
+
+/** Whether an uploaded file's original bytes are still on disk — used to flag a document as unavailable before the user picks it, rather than only failing later at outline time. */
+export function uploadedFileExists(documentId: string, format: DocumentFormat): boolean {
+  return existsSync(uploadPath(documentId, format));
 }

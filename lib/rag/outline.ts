@@ -1,6 +1,39 @@
 import { z } from "zod";
 import { json } from "../sarvam";
+import type { DocumentChunkRow, DocumentRow } from "../db/types";
 import type { ParsedDocument, ParsedSection } from "../documents/types";
+
+/**
+ * Rebuilds a ParsedDocument from already-embedded chunk rows, for when the
+ * original upload is gone from disk (see the outline route's fallback) but
+ * document_chunks survived. This is necessarily lossy: retrieval chunks
+ * don't line up with the source's real paragraph/heading boundaries, and
+ * heading level (ParsedSection.level) isn't stored per chunk, so DOCX/MD
+ * chapter grouping — which needs level === 1 — degenerates to the PDF/PPTX
+ * marker-based grouping in groupIntoChapters. The result is a usable, not
+ * exact, outline.
+ */
+export function reconstructParsedDocument(document: DocumentRow, chunks: DocumentChunkRow[]): ParsedDocument {
+  const sections: ParsedSection[] = [];
+  let current: ParsedSection | undefined;
+
+  for (const chunk of chunks) {
+    const section = chunk.section ?? undefined;
+    const page = chunk.page ?? undefined;
+    if (!current || current.title !== section || current.page !== page) {
+      current = { order: sections.length, title: section, page, paragraphs: [] };
+      sections.push(current);
+    }
+    current.paragraphs.push({ order: chunk.order, text: chunk.text });
+  }
+
+  return {
+    format: document.format,
+    title: document.title,
+    sections: sections.length > 0 ? sections : [{ order: 0, paragraphs: [] }],
+    pageCount: document.pageCount ?? undefined,
+  };
+}
 
 /**
  * Chapter/concept extraction: what the lesson planner reads to answer

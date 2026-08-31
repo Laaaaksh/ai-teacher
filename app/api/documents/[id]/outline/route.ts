@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDocument, getDocumentOutline, saveDocumentOutline } from "@/lib/db";
-import { extractOutline } from "@/lib/rag";
-import { parseDocument, readUploadedFile } from "@/lib/documents";
+import { getDocument, getDocumentChunks, getDocumentOutline, saveDocumentOutline } from "@/lib/db";
+import { extractOutline, reconstructParsedDocument } from "@/lib/rag";
+import { parseDocument, readUploadedFile, type ParsedDocument } from "@/lib/documents";
 
 export const runtime = "nodejs";
 
@@ -23,14 +23,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const force = req.nextUrl.searchParams.get("regenerate") === "true";
   if (cached && !force) return NextResponse.json({ outline: cached.outline, cached: true });
 
-  let buffer: Buffer;
+  let parsed: ParsedDocument;
   try {
-    buffer = await readUploadedFile(id, document.format);
+    const buffer = await readUploadedFile(id, document.format);
+    parsed = await parseDocument(buffer, `${document.title}.${document.format}`);
   } catch {
-    return NextResponse.json({ error: `The original upload for "${document.title}" is no longer available on disk.` }, { status: 409 });
+    // Upload gone from disk (moved checkout, cleared cache dir, restored DB without
+    // data/uploads/) — fall back to rebuilding from the chunks already embedded for
+    // this document, if any. See reconstructParsedDocument for what's lost doing this.
+    const chunks = getDocumentChunks(id);
+    if (chunks.length === 0) {
+      return NextResponse.json({ error: `The original upload for "${document.title}" is no longer available on disk.` }, { status: 409 });
+    }
+    parsed = reconstructParsedDocument(document, chunks);
   }
 
-  const parsed = await parseDocument(buffer, `${document.title}.${document.format}`);
   const outline = await extractOutline(id, parsed);
   const saved = saveDocumentOutline(outline);
 
