@@ -140,8 +140,8 @@ describe("planLesson — dependency sequencing", () => {
 
   it("builds citations from the real chunk text, not from model-invented excerpts", async () => {
     const chunks: DocumentChunkRow[] = [
-      { id: "chunk-1", documentId: "doc-1", order: 0, text: "Newton's first law: an object at rest stays at rest.", page: 4, section: "Chapter 4", createdAt: "now" },
-      { id: "chunk-2", documentId: "doc-1", order: 1, text: "Newton's second law: F = ma.", page: 5, section: "Chapter 4", createdAt: "now" },
+      { id: "chunk-1", documentId: "doc-1", order: 0, text: "Newton's first law: an object at rest stays at rest.", page: 4, section: "Chapter 4", embedding: null, createdAt: "now" },
+      { id: "chunk-2", documentId: "doc-1", order: 1, text: "Newton's second law: F = ma.", page: 5, section: "Chapter 4", embedding: null, createdAt: "now" },
     ];
 
     stubChatSequence({
@@ -177,9 +177,9 @@ describe("planLesson — dependency sequencing", () => {
 
 describe("filterChunksBySectionHint / selectChunksForPlanning", () => {
   const chunks: DocumentChunkRow[] = [
-    { id: "1", documentId: "d", order: 0, text: "intro", page: 1, section: "Chapter 1", createdAt: "now" },
-    { id: "2", documentId: "d", order: 1, text: "a".repeat(100), page: 4, section: "Chapter 4", createdAt: "now" },
-    { id: "3", documentId: "d", order: 2, text: "more chapter 4 text", page: 5, section: "Chapter 4", createdAt: "now" },
+    { id: "1", documentId: "d", order: 0, text: "intro", page: 1, section: "Chapter 1", embedding: null, createdAt: "now" },
+    { id: "2", documentId: "d", order: 1, text: "a".repeat(100), page: 4, section: "Chapter 4", embedding: null, createdAt: "now" },
+    { id: "3", documentId: "d", order: 2, text: "more chapter 4 text", page: 5, section: "Chapter 4", embedding: null, createdAt: "now" },
   ];
 
   it("narrows to the matching section when a hint is given", () => {

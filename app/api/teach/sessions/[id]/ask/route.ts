@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  getDocumentChunks,
   getLearnerProfile,
   getLessonPlanForSession,
   getLessonSession,
@@ -36,7 +35,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const plan = getLessonPlanForSession(sessionId);
   const currentScene = plan ? getScenesForLessonPlan(plan.id).find((s) => s.order === session.currentSceneOrder) : undefined;
   const currentConcept = plan?.concepts.find((c) => c.id === currentScene?.conceptId);
-  const documentChunks = session.sourceDocumentId ? getDocumentChunks(session.sourceDocumentId) : undefined;
 
   const answered = await runLlm("Answering the follow-up question", () =>
     answerFollowUpQuestion({
@@ -44,7 +42,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       lessonTopic: session.topic,
       currentConcept: currentConcept ? { title: currentConcept.title, summary: currentConcept.summary } : undefined,
       sourceDocumentId: session.sourceDocumentId ?? undefined,
-      documentChunks,
       language: session.language,
       learnerProfile,
     }),
