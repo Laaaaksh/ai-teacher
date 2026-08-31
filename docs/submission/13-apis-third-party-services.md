@@ -48,7 +48,7 @@ the reasoning-token-budget behaviour that had to be worked around.
 | `playwright` | Headless Chromium automation for frame capture |
 | `pdf-parse`, `mammoth`, `jszip`, `fast-xml-parser`, `cheerio` | Document parsing: PDF, DOCX, PPTX (a zipped XML bundle), and their internal markup |
 | `tailwindcss` v4 | Styling |
-| `vitest` | Test runner (163 tests, network-free — see [14](14-setup-instructions.md)) |
+| `vitest` | Test runner (181 tests, network-free — see [14](14-setup-instructions.md)) |
 
 Full list with exact pinned versions: `package.json`. `AGENTS.md`'s
 "Non-obvious setup facts" section documents every dependency-related gotcha

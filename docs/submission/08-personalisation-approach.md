@@ -57,14 +57,19 @@ plan gets more of the total time, not an even split.
 
 ## 4. Depth also changes how each concept is taught
 
-`script.ts`'s `DEPTH_GUIDANCE` (referenced via `plan.ts`'s prompt) is the
-prose instruction that turns the depth multiplier into actual content
-difference: overview lessons are told to keep summaries and examples brief
-and skip derivations; deep lessons are told to go into the underlying
-mechanism, precise technical terminology, and implementation-level detail —
-matching the spec's own beginner/intermediate/advanced example almost
-verbatim, but driven by the learner's stated `depth`, not a hardcoded
-three-way branch.
+`plan.ts`'s `DEPTH_GUIDANCE` — defined in that file and interpolated
+directly into its own planning prompt — is the prose instruction that turns
+the depth multiplier into actual content difference: overview lessons are
+told to keep summaries and examples brief and skip derivations; deep lessons
+are told to go into the underlying mechanism, precise technical terminology,
+and implementation-level detail — matching the spec's own
+beginner/intermediate/advanced example almost verbatim, but driven by the
+learner's stated `depth`, not a hardcoded three-way branch.
+
+That guidance reaches the taught scenes indirectly rather than through a
+second depth-aware prompt: `script.ts` never reads `depth`, it scripts each
+concept from the summary the planner wrote, so a `deep` plan's
+mechanism-level summaries are what make the resulting scenes deeper.
 
 ## 5. Style shapes tone, not structure
 

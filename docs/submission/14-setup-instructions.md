@@ -24,15 +24,19 @@ npm install
 ```
 
 **If `npm install` warns about pending install scripts** for
-`better-sqlite3`, `esbuild`, `fsevents`, `protobufjs`, or `unrs-resolver` —
-these are native modules that need their build step approved in this
-environment (`npm`'s `allowScripts` supply-chain guard). Approve them
+`better-sqlite3`, `esbuild`, `fsevents`, `protobufjs`, `sharp`, or
+`unrs-resolver` — these are native modules that need their build step
+approved in this environment (`npm`'s `allowScripts` supply-chain guard).
+`sharp` is the one most easily missed: it is a nested dependency of
+`@xenova/transformers`, and without it built, `lib/rag/embed.ts` throws at
+module load, so the first document you index fails. Approve them
 individually:
 
 ```bash
 npm approve-scripts better-sqlite3@13.0.3
 npm approve-scripts esbuild@0.28.2
 npm approve-scripts protobufjs@6.11.6
+npm approve-scripts sharp@0.32.6
 npm approve-scripts unrs-resolver@1.12.2
 # fsevents is macOS-only; skip it on Linux
 ```
@@ -77,10 +81,10 @@ npm run build
 ```
 
 All four were run on the clean checkout used to write this documentation:
-`npm run typecheck` and `npm run lint` passed with no errors, **163/163
-tests passed across 27 files** (2.36s), and `npm run build` produced a
-successful production build of all 16 routes. No CI is wired up in this
-repository (a GitHub Actions account billing issue on the hosting account —
+`npm run typecheck` and `npm run lint` passed with no errors, **181/181
+tests passed across 31 test files**, and `npm run build` produced a
+successful production build covering the app's 5 pages and 23 API route
+handlers. No CI is wired up in this repository (a GitHub Actions account billing issue on the hosting account —
 see [16 — Known limitations](16-known-limitations.md)), so these four
 commands are what to run locally before trusting a change.
 

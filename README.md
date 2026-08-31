@@ -67,9 +67,9 @@ indexing → outline → grounded question answering with citations on its own.
 
 No CI workflow is wired up yet (why: Known limitations in
 `docs/ARCHITECTURE.md`), so run `npm run typecheck`, `npm run lint`, `npm test`
-and `npm run build` locally before pushing. All four were run clean — 163/163
-tests passing — on a fresh checkout immediately before this documentation was
-written.
+and `npm run build` locally before pushing. All four were run clean — 181/181
+tests passing across 31 test files — on a fresh checkout immediately before
+this documentation was written.
 
 ## What works today
 
