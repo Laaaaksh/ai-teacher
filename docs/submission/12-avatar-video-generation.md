@@ -111,17 +111,20 @@ functions/line graphs); `"fade"` fades the whole visual in once (Mermaid
 diagrams, images — their internal SVG shape varies too much per diagram type
 for reliable node-by-node staggering).
 
-Every renderer parses the model's visual content **defensively**: a
-malformed payload degrades to a visible on-screen error rather than throwing
-and breaking the render. Each renderer has its own fallback — KaTeX emits
-its inline parse-error text, `mermaid.ts` emits
-`"Diagram could not be rendered: ..."`, and so on.
-
-This is not a hypothetical: malformed content was caught on 2 of 18 scenes
-in this documentation's own real render.
-[16 — Known limitations](16-known-limitations.md#video-generation) has the
-case-by-case breakdown — which scenes, which renderer's fallback each one
-actually hit, the exact malformed content, and the fix that would close it.
+Every renderer parses the model's visual content **defensively** so a
+malformed payload can't throw and break the render. `plotter` degrades to a
+centred error message; KaTeX (`throwOnError: false`) prints its own inline
+parse-error text in place of the equation — this is what a real malformed
+scene actually looked like, caught live while rendering this
+documentation's own 18-scene lesson (2 of 18 scenes), with the exact
+scene-by-scene breakdown in
+[16 — Known limitations](16-known-limitations.md#video-generation).
+`mermaid.ts` is the one exception worth calling out: after that render, its
+fallback was separately rewritten (merged via `fm/ait-integrate`) so a
+diagram failure now shows the scene's own caption in a plain panel and logs
+the real error server-side, rather than putting parser output in front of a
+student — the one renderer whose worst-case failure mode no longer reaches
+the screen at all.
 
 ## The avatar
 

@@ -17,9 +17,12 @@ beat, which physics's `example` override in `SUBJECT_VISUAL_RULES` assigns
 to the `katex` renderer. The model returned raw HTML there instead of LaTeX,
 so KaTeX (`throwOnError: false`) printed that content back verbatim in red
 where the equation should be, and the scene's narrated caption still
-rendered below it. Not staged — and distinct from the app's own renderer
-fallbacks (`mermaid`, `plotter`, `svg`, `image`), which emit a centred
-orange message rather than the source text.*
+rendered below it. Not staged — and distinct from `plotter`'s own fallback
+(`.visual-plot-error`, a centred orange message rather than the source
+text). Note for a reader diffing this against the current codebase: this is
+KaTeX-specific behaviour, unchanged since this render — `mermaid.ts`'s own
+fallback was independently rewritten after this render (see the bullet
+below) and no longer resembles either style.*
 
 - **The model occasionally emits visual content in the wrong format for its
   assigned renderer, and the renderer falls back to a visible red error
@@ -44,7 +47,13 @@ orange message rather than the source text.*
   stricter post-generation format check (strip `$$` wrapper for katex,
   reject non-Mermaid-looking content for mermaid and retry once, the same
   pattern `adapt.ts` already uses for banned-analogy repeats) would close
-  this; not implemented here.
+  this; not implemented here. **Update since this render**: `mermaid.ts`'s
+  fallback has separately been rewritten (merged via `fm/ait-integrate`) so
+  a diagram-render failure never puts raw error text or model output in
+  front of a student — it now shows the scene's own caption in a plain
+  panel, logging the real error server-side instead. This closes the
+  mermaid half of the general failure mode described above; the KaTeX half
+  (the actual case pictured above) is unchanged and still open.
 - **A video segment renders live, in real time** (Playwright captures every
   frame, then `ffmpeg` encodes) — real progress is shown while it renders,
   not a fake spinner, but there is no pre-rendering ahead of where the
