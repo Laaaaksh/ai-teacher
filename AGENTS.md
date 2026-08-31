@@ -14,11 +14,13 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   `docs/ARCHITECTURE.md`).
 - `next.config.ts` sets `serverExternalPackages` for `better-sqlite3`,
   `pdf-parse`, `pdfjs-dist`, `mammoth`, `@xenova/transformers`,
-  `onnxruntime-node`, and `sharp`. Without this, `pdf-parse` (which
-  bundles `pdfjs-dist`) breaks under Next's RSC webpack layer with
-  `TypeError: Object.defineProperty called on non-object` — any new
-  native-binding or CJS/ESM-interop-fragile package added under `lib/` should
-  be added here too rather than debugged from scratch.
+  `onnxruntime-node`, `sharp`, `playwright`, `mermaid`, and `katex`. Without
+  this, `pdf-parse` (which bundles `pdfjs-dist`) breaks under Next's RSC
+  webpack layer with `TypeError: Object.defineProperty called on non-object`,
+  and the video renderers lose the on-disk package layout they read assets
+  from — any new native-binding, CJS/ESM-interop-fragile, or
+  own-package-layout-reading package added under `lib/` should be added here
+  too rather than debugged from scratch.
 - `SARVAM_API_KEY` is the only AI credential this project uses; `.env.example`
   documents it. Never invent a dependency on another paid API.
 - Native modules (`better-sqlite3`, `protobufjs`) need `npm approve-scripts
@@ -27,6 +29,11 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
 - `lib/rag/embed.ts`'s embedding model (`Xenova/all-MiniLM-L6-v2`) downloads
   once to `.cache/transformers/` (gitignored, ~23MB) on first use — needs
   network the very first time; every run after that is offline.
+- **Teaching-video generation needs a browser and `ffmpeg` that `npm install`
+  does not provide**: `npx playwright install chromium` once per machine (the
+  `playwright` package ships no postinstall hook in this version — see
+  `docs/VIDEO.md`), and `ffmpeg` on `PATH` (invoked as a subprocess, not an
+  npm dependency).
 - **`sarvam-105b` burns its `max_tokens` budget on `reasoning_content` before
   writing any `content`.** Measured live: reasoning alone can run 26,000-
   34,000 characters, so a call budgeted below that returns `finish_reason:
@@ -87,6 +94,16 @@ and takes precedence over anything below. `docs/SCHEMA.md` documents the databas
   Question → Evaluate → Adapt → Continue, one module per step, orchestrated
   by `session.ts` and exposed under `app/api/teach/`. See `docs/ARCHITECTURE.md`'s
   "The teaching engine" section for the module table and API surface.
+- `lib/video/` — turns a `LessonPlan`/`Scene[]` into an MP4: narration+envelope
+  (`narrate.ts`), subject-aware visual renderers (`visuals/`, one file per
+  renderer — katex/shiki/mermaid/plotter/svg/html — dispatched by
+  `visuals/index.ts`), the SVG avatar (`avatar/`), page composition
+  (`compose.ts`), and Chromium-capture + ffmpeg encoding (`render.ts`,
+  `ffmpeg.ts`). Every captured frame is a pure function of a logical
+  timestamp — **never add a CSS `transition`/`@keyframes` to a composed
+  page**, it runs on wall-clock time and breaks deterministic frame capture
+  and per-scene caching. `VisualSpec.content`'s per-renderer format contract
+  is documented in `docs/VIDEO.md`, not here.
 
 ## Testing
 
@@ -97,7 +114,12 @@ once, use `mockImplementation` (a fresh `Response` per call) rather than
 `mockResolvedValue` with a single `Response` object, since a `Response` body
 can only be read once. `lib/teach` tests use `__tests__/support/sarvamMock.ts`'s
 `stubChatSequence(...payloads)` for the same pattern, one payload per expected
-call in order.
+call in order. Video-pipeline tests (`video-narrate`/`video-render`) follow the
+same fetch-mocking pattern for the Sarvam TTS boundary, plus set
+`VIDEO_CACHE_DIR` to a fresh per-test tmp dir; `video-mermaid`/`video-render`
+launch a real headless Chromium and (for `video-render`) shell out to real
+`ffmpeg`/`ffprobe` — everything downstream of the mocked network call is
+exercised for real, on purpose.
 
 ## Maintaining this file
 

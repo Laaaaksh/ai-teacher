@@ -53,8 +53,9 @@ run locally.
   assessments, progress, learning paths). No external database. Schema and
   rationale: `docs/SCHEMA.md`.
 - `ffmpeg` (installed) muxes the generated video; Playwright/headless Chromium
-  captures frames server-side. (Both consumed by the video-generation slice,
-  not by this foundation slice.)
+  captures frames server-side. Both are consumed by the video-generation slice
+  and are the two setup steps `npm install` cannot provide — see
+  `docs/VIDEO.md`.
 
 ## RAG
 
@@ -189,21 +190,17 @@ or a Mermaid concept map.
 
 ## Video generation
 
-No avatar API key exists, so the avatar is rendered by this app, in-browser:
+The architectural constraint: no avatar API key exists (no HeyGen/D-ID/
+ElevenLabs), so the avatar is rendered by this app itself — an SVG presenter
+animated in a real headless Chromium page, lip-synced from the amplitude
+envelope of Sarvam's own TTS audio, composed beside a larger subject visual
+with captions, captured frame by frame and muxed by `ffmpeg`. Nothing here
+depends on a credential this project does not hold.
 
-- Each scene: narration text → Sarvam TTS → WAV, plus a visual panel rendered
-  as HTML.
-- Avatar: an expressive SVG/canvas presenter with viseme lip-sync driven by the
-  audio amplitude envelope, plus idle motion (blink, small head movement).
-- Composition: avatar and the subject visual share the frame — the visual is
-  the larger element. On-screen text/captions included (also an accessibility
-  win).
-- Capture frames headlessly (Playwright/Chromium), mux with the concatenated
-  audio via ffmpeg into an MP4.
-
-This is entirely the video-generation slice's scope; this foundation slice only
-guarantees the TTS call it depends on (`textToSpeech()`) returns a decoded
-`Buffer` reliably.
+`docs/VIDEO.md` owns the built pipeline: setup, per-renderer `VisualSpec`
+contracts, determinism and caching rules, the avatar and its personas, the
+job API, and this slice's own known limitations (which the Non-negotiables
+below apply to just as much as the ones listed here).
 
 ## Multilingual
 
@@ -368,6 +365,11 @@ Two smaller fixes, also found live:
    every module routes through it instead of interpolating the raw code.
 
 ## Known limitations
+
+The teaching-video slice keeps its own list (viseme approximation, no
+illustrative art, single-process job queue, even-paced captions) in Known
+limitations in `docs/VIDEO.md` — that list is part of this contract, not an
+appendix to it.
 
 - **PPTX slide order** is inferred from the numeric suffix of
   `ppt/slides/slideN.xml` rather than the presentation's relationship-ordered

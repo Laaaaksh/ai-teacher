@@ -14,18 +14,24 @@ Built for the Bharat Academix AI Innovation Hackathon 2026, Round 2.
 ```bash
 npm install
 cp .env.example .env.local   # fill in SARVAM_API_KEY
+npx playwright install chromium   # one-time: teaching-video generation needs a real browser to render into
 npm run dev
 ```
 
-Requires Node 20+. No database server, vector DB, or other paid API is needed —
-SQLite lives on disk at `data/ai-teacher.sqlite` and is created automatically on
-first run. Retrieval embeddings also run locally: the first document you index
-downloads a ~23MB MiniLM model to `.cache/transformers/` (gitignored), so that
-one run needs network; every run after it is offline.
+Requires Node 20+, and `ffmpeg` on `PATH` (used as a subprocess to mux teaching
+videos — `brew install ffmpeg` / `apt install ffmpeg`). No database server,
+vector DB, or other paid API is needed — SQLite lives on disk at
+`data/ai-teacher.sqlite` and is created automatically on first run. Retrieval
+embeddings run locally too: the first document you index downloads a ~23MB
+MiniLM model to `.cache/transformers/` (gitignored), so that one run needs
+network; every run after it is offline. See `docs/VIDEO.md` for why the
+video-generation slice needs Playwright's browser downloaded separately from
+`npm install`.
 
-Open http://localhost:3000 for the learner-profile and upload entry point, or
-http://localhost:3000/rag-demo to upload a document and watch indexing → outline
-→ grounded question answering with citations.
+Open http://localhost:3000 for the student experience — upload material or
+name a topic, describe how you want to be taught, and watch a real teaching
+video with checkpoints — or http://localhost:3000/rag-demo to exercise
+indexing → outline → grounded question answering with citations on its own.
 
 ## Scripts
 
@@ -46,17 +52,17 @@ and `npm run build` locally before pushing.
 
 ## What works today
 
-The web page covers the learner profile and uploading material (or naming a
-topic). Document ingestion, hybrid BM25 + dense retrieval, cited answers (or
-an honest refusal), cross-language querying, and chapter/concept extraction
-are all live — see `/rag-demo`. The teaching loop itself — plan a lesson,
-teach it beat by beat, ask checkpoint questions, evaluate an answer,
-re-explain differently when it's wrong, then produce a report — runs behind
-`/api/teach/*` and is drivable end to end from there; see "The teaching
-engine" in `docs/ARCHITECTURE.md` for the endpoints. Note that
+Document ingestion, hybrid BM25 + dense retrieval, cited answers (or an
+honest refusal), cross-language querying, and chapter/concept extraction are
+all live — see `/rag-demo`. The teaching loop — plan a lesson, teach it beat
+by beat, ask checkpoint questions, evaluate an answer, re-explain differently
+when it's wrong, then produce a report — runs behind `/api/teach/*`; see "The
+teaching engine" in `docs/ARCHITECTURE.md` for the endpoints. Note that
 `POST /api/teach/sessions` returns once the lesson is *planned* and scripts
 the lesson in the background, so poll `GET /api/teach/sessions/:id` until its
-`scriptingStatus` settles.
+`scriptingStatus` settles. Teaching-video generation (narration, subject-aware
+visuals, the avatar, composition, encoding) is implemented in `lib/video/` —
+see `docs/VIDEO.md`.
 
 See `docs/ARCHITECTURE.md` and `docs/SCHEMA.md` for the system design and
 database schema.

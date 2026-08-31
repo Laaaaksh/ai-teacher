@@ -38,6 +38,7 @@ next-env.d.ts
 # app data
 data/uploads/
 data/generated/
+data/video-cache/
 
 # local model cache (all-MiniLM-L6-v2 ONNX weights — downloads once, see lib/rag/embed.ts)
 .cache/
