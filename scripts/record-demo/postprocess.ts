@@ -122,15 +122,24 @@ function encodeSegment(fromMp4: string, startS: number, endS: number, outPath: s
   ]);
 }
 
-function encodeRealClip(inPath: string, outPath: string) {
-  ffmpeg([
-    "-i", inPath,
-    "-vf", `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
-    "-r", String(FPS),
-    "-ar", String(AR), "-ac", "2",
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
-    outPath,
-  ]);
+/** maxSeconds caps how much of a real generated teaching-video clip plays before cutting to the
+ *  next segment — the assessment recommends 3-7 minutes total, and 3-5 full real clips (each
+ *  legitimately 1.5-2 real minutes of narrated teaching) would blow well past that on their own.
+ *  Still 100% real footage, still shows every stage, just an honestly-labelled excerpt of a
+ *  longer real clip rather than the whole thing — never sped up, never cut mid-sentence-looking
+ *  without saying so. */
+function encodeRealClip(inPath: string, outPath: string, maxSeconds?: number) {
+  const fullDur = ffprobeDuration(inPath);
+  const trimmed = maxSeconds != null && fullDur > maxSeconds;
+  const args = ["-i", inPath];
+  if (trimmed) args.push("-t", String(maxSeconds));
+  let vf = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+  if (trimmed) {
+    const label = escapeDrawtext(`Excerpt — full clip runs ${Math.round(fullDur)}s, not sped up`);
+    vf += `,drawtext=fontfile=${CAPTION_FONT_FILE}:text='${label}':fontcolor=white:fontsize=20:box=1:boxcolor=black@0.5:boxborderw=8:x=20:y=20`;
+  }
+  args.push("-vf", vf, "-r", String(FPS), "-ar", String(AR), "-ac", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", outPath);
+  ffmpeg(args);
 }
 
 function labelCard(text: string, seconds: number, outPath: string) {
@@ -239,7 +248,11 @@ async function main() {
       cursor = b.endS;
     } else {
       const real = path.join(WORK_DIR, `${String(n++).padStart(3, "0")}-real-clip.mp4`);
-      encodeRealClip(b.clipPath, real);
+      // The adaptation re-explanation is the highest-weighted moment in the rubric — give it the
+      // most room. Regular teaching-video segments get a shorter excerpt so the total run stays
+      // in the assessment's recommended 3-7 minutes without cutting any stage out entirely.
+      const maxSeconds = /adaptation|re-explanation/i.test(b.label) ? 35 : 20;
+      encodeRealClip(b.clipPath, real, maxSeconds);
       segmentFiles.push(real);
       cursor = b.atS; // raw continues from the same point (the app moved on right after "ended")
     }

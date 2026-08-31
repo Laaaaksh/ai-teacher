@@ -72,11 +72,30 @@ font that doesn't cover the lesson's script renders tofu boxes, not an error.
 Written honestly, not smoothed over — this is the take that shipped, not a
 retouched one.
 
-- **Runs ~8.6 minutes, longer than the assessment's recommended 3–7.** Real
-  LLM planning/outline calls and real per-concept video rendering (3 concepts,
-  a full 20-minute lesson plan) add up; the cut cards keep every wait
-  honestly labelled rather than hidden, which reads as more runtime than a
-  tightly edited demo would.
+- **Real per-concept teaching-video clips are excerpted, not played in
+  full.** A full 20-minute-lesson plan's 3 real generated segments run
+  1.5–2 real minutes each — playing all of them end to end, even with every
+  dead LLM/render wait already cut down to a labelled card, ran ~8.6
+  minutes, over the assessment's recommended 3–7. `postprocess.ts`'s
+  `encodeRealClip` now caps how much of each real clip plays (35s for the
+  adaptation re-explanation — the highest-weighted moment in the rubric —
+  20s for the others), captioned "Excerpt — full clip runs Ns, not sped up"
+  whenever it trims. Every clip is still 100% real footage of the real
+  generated video, at real speed, for every stage; it's just not the whole
+  thing. Final runtime: ~3m50s.
+- **Two scenes had KaTeX render failures (raw LaTeX markup dumped into the
+  frame, in red) that this take avoids only because they fall outside the
+  excerpted window each clip plays** — not because they were fixed. Found by
+  sampling frames across all 5 real clips end to end (not just the excerpted
+  portions) after this exact defect was reported. See `docs/VIDEO.md`'s
+  Known limitations for the root cause (`throwOnError: false` in
+  `visuals/katex.ts`, no fallback the way Mermaid has one) and the two exact
+  failures hit (a `\begin{array}` comparison table `visuals/katex.ts` can't
+  parse, and a step with doubled backslashes from what looks like an
+  escaping bug upstream of the renderer). Filed as a known limitation, not
+  silently dropped, since the underlying bug is real and unfixed — it would
+  surface again on a longer excerpt, a re-roll of the same lesson, or a
+  different topic that reaches for a comparison table.
 - **The quiz doesn't finish in this take, so there's no results/report or
   progress-dashboard segment.** The recorder reused the checkpoint's
   per-question "Submit answer" button selector for the final quiz — but the
@@ -84,10 +103,10 @@ retouched one.
   per question — so the second quiz question's fill hung for the automation's
   30s timeout, the process exited, and the recording ends on the
   partially-filled quiz screen (trimmed to stop there rather than padding out
-  the ~60s of frozen dead air that followed the crash). **Fixed** in this same
-  commit (`fillAnswer` vs. `submitAnswer` — quiz cards now fill-only, quiz
-  submission is a single click after the loop) but not re-recorded, per
-  instruction: this take ships with the gap, not a redo.
+  the ~60s of frozen dead air that followed the crash). **Fixed** in
+  `record.ts` (`fillAnswer` vs. `submitAnswer` — quiz cards now fill-only,
+  quiz submission is a single click after the loop) but not re-recorded,
+  per instruction: this take ships with the gap, not a redo.
 - **The automation's first quiz answer was wrong.** `pickAnswer`'s MCQ logic
   only recognizes "increase"/"decrease"/"inversely proportional" wording; a
   plain numeric Ohm's-law question ("12V, 4Ω, what's the current?") has none

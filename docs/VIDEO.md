@@ -165,6 +165,23 @@ by the API.
   supplied in `VisualSpec.content` (e.g. lifted from a parsed slide).
 - **Mermaid diagrams reveal as a single entrance, not node-by-node** — see
   the `RevealMode` table above.
+- **KaTeX renders its own raw-markup error text into the frame on a parse
+  failure, instead of falling back cleanly like the Mermaid renderer does.**
+  `visuals/katex.ts` calls `katex.renderToString(latex, { throwOnError:
+  false, ... })` — `throwOnError: false` is exactly what makes KaTeX print
+  the literal, unrendered LaTeX source (in red) into the page rather than
+  throwing, so nothing in `render.ts` gets a chance to catch it and swap in
+  a caption panel the way `visuals/mermaid.ts`'s `catch` block does. Hit for
+  real while recording `docs/assets/demo.mp4` (see `scripts/record-demo/
+  README.md`): a `\begin{array}` comparison table and a step with doubled
+  backslashes (`\\frac`, `\\Omega` — a literal-backslash-escaping bug
+  somewhere upstream of the renderer, not a KaTeX limitation) both rendered
+  as raw markup instead of equations. Not visible in the shipped take only
+  because those two scenes fell outside the excerpted window each real clip
+  plays; the underlying scenes, and the bug, are still there. The fix is the
+  same pattern already used for Mermaid: catch the render, fall back to a
+  caption panel (or the plain narration text) instead of surfacing KaTeX's
+  own error output.
 - **Single-process job queue** (`lib/video/jobs.ts`): a render job is an
   in-process `Promise` tracked in the `video_jobs` table, not a durable
   worker queue. Fine for one local `next dev`/`next start` instance; a
