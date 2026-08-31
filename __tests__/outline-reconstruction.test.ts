@@ -98,4 +98,39 @@ describe("outline reconstruction from chunks (regression: missing upload no long
     expect(reconstructed.sections[1]).toMatchObject({ title: "Methods", page: 2 });
     expect(reconstructed.sections[1].paragraphs.map((p) => p.text)).toEqual(["third"]);
   });
+
+  it("recovers DOCX heading levels from the stored breadcrumb so chapters don't collapse into one", async () => {
+    const docx: ParsedDocument = { format: "docx", title: "Physics", sections: [] };
+    const { document } = saveDocument(docx, [
+      { order: 0, text: "Chapter 1", section: "Chapter 1" },
+      { order: 1, text: "Current is the flow of charge.", section: "Chapter 1 > 1.1 Current" },
+      { order: 2, text: "Chapter 2", section: "Chapter 2" },
+      { order: 3, text: "Resistance opposes current.", section: "Chapter 2 > 2.1 Resistance" },
+    ]);
+
+    const reconstructed = reconstructParsedDocument(document, getDocumentChunks(document.id));
+
+    expect(reconstructed.sections.map((s) => ({ title: s.title, level: s.level }))).toEqual([
+      { title: "Chapter 1", level: 1 },
+      { title: "1.1 Current", level: 2 },
+      { title: "Chapter 2", level: 1 },
+      { title: "2.1 Resistance", level: 2 },
+    ]);
+
+    stubChatSequence(
+      { concepts: [{ title: "Current", summary: "Flow of charge." }], definitions: [], examples: [] },
+      { concepts: [{ title: "Resistance", summary: "Opposition to current." }], definitions: [], examples: [] },
+    );
+
+    const outline = await extractOutline(document.id, reconstructed);
+    expect(outline.chapters.map((c) => c.title)).toEqual(["Chapter 1", "Chapter 2"]);
+  });
+
+  it("leaves a PDF section breadcrumb intact rather than splitting it into heading levels", () => {
+    const { document } = saveDocument(PARSED, [{ order: 0, text: "body", page: 1, section: "A > B" }]);
+
+    const reconstructed = reconstructParsedDocument(document, getDocumentChunks(document.id));
+
+    expect(reconstructed.sections[0]).toMatchObject({ title: "A > B", level: undefined });
+  });
 });

@@ -147,8 +147,10 @@ below) and no longer resembles either style.*
   the document's embedded chunks when that file is gone** (moved checkout,
   cleared cache dir, DB restored without `data/uploads/`) — the chunk-based
   outline is usable but not exact, since retrieval chunks don't line up with
-  the source's real paragraph/heading boundaries. Only a document with
-  neither the file nor any chunks returns 409, and such a document is now
+  the source's real paragraph/heading boundaries and overlap each other. It
+  is returned uncached, so restoring the file yields the exact outline on
+  the next request. Only a document with neither the file nor any chunks
+  returns 409, and such a document is now
   also flagged `available: false` in the document listing so it isn't
   offered as a selectable source in the first place.
 - **PDF chapter titles can be hard-truncated at 80 characters** when a PDF's

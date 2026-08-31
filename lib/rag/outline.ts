@@ -8,20 +8,34 @@ import type { ParsedDocument, ParsedSection } from "../documents/types";
  * original upload is gone from disk (see the outline route's fallback) but
  * document_chunks survived. This is necessarily lossy: retrieval chunks
  * don't line up with the source's real paragraph/heading boundaries, and
- * heading level (ParsedSection.level) isn't stored per chunk, so DOCX/MD
- * chapter grouping — which needs level === 1 — degenerates to the PDF/PPTX
- * marker-based grouping in groupIntoChapters. The result is a usable, not
- * exact, outline.
+ * they overlap, so text near a boundary appears in two adjacent
+ * "paragraphs". Heading level isn't stored per chunk either, but for
+ * DOCX/Markdown it is recoverable: chunk.section holds the heading
+ * breadcrumb ("Chapter 1 > 1.1 Ohm's law", lib/rag/chunk.ts), whose depth
+ * is the heading level, so groupIntoChapters' level === 1 chapter detection
+ * still fires instead of collapsing the whole document into one chapter. A
+ * document whose headings start below h1 reconstructs one level shallower
+ * than the source. The result is a usable, not exact, outline.
  */
 export function reconstructParsedDocument(document: DocumentRow, chunks: DocumentChunkRow[]): ParsedDocument {
+  const hierarchical = document.format === "docx" || document.format === "md";
   const sections: ParsedSection[] = [];
   let current: ParsedSection | undefined;
+  let currentBreadcrumb: string | undefined;
 
   for (const chunk of chunks) {
-    const section = chunk.section ?? undefined;
+    const breadcrumb = chunk.section ?? undefined;
     const page = chunk.page ?? undefined;
-    if (!current || current.title !== section || current.page !== page) {
-      current = { order: sections.length, title: section, page, paragraphs: [] };
+    if (!current || currentBreadcrumb !== breadcrumb || current.page !== page) {
+      const trail = hierarchical && breadcrumb ? breadcrumb.split(" > ") : undefined;
+      current = {
+        order: sections.length,
+        title: trail ? trail[trail.length - 1] : breadcrumb,
+        level: trail ? trail.length : undefined,
+        page,
+        paragraphs: [],
+      };
+      currentBreadcrumb = breadcrumb;
       sections.push(current);
     }
     current.paragraphs.push({ order: chunk.order, text: chunk.text });

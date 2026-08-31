@@ -492,11 +492,18 @@ appendix to it.
   `scripts/record-demo/README.md`), `GET /api/documents/[id]/outline` falls
   back to `reconstructParsedDocument` (`lib/rag/outline.ts`), which rebuilds
   a usable-but-not-exact `ParsedDocument` from `document_chunks` — chunk
-  boundaries aren't real paragraph/heading boundaries, and heading level
-  isn't stored per chunk, so DOCX/MD chapter grouping degenerates to the
-  PDF/PPTX marker-based grouping. Only a document with neither the file nor
-  any chunks still returns 409; `GET /api/documents` also flags such a
-  document `available: false` so it isn't offered as a selectable source.
+  boundaries aren't real paragraph/heading boundaries and retrieval chunks
+  overlap, so text near a boundary appears twice; DOCX/Markdown chapter
+  detection is preserved by reading heading depth back out of the stored
+  `section` breadcrumb, but a document whose headings start below h1
+  reconstructs one level shallower than the source. That degraded outline is
+  returned uncached (`document_outlines` is only written from the on-disk
+  parse), so restoring the file makes the next request produce the exact
+  outline. A file that is present but fails to parse still surfaces the real
+  parse error rather than falling back. Only a document with neither the
+  file nor any chunks still returns 409; `GET /api/documents` also flags
+  such a document `available: false` so it isn't offered as a selectable
+  source.
 - **PDF chapter titles can be truncated.** Chapter detection for PDF/PPTX
   looks for a "Chapter N"/"Unit N" marker in a section's first line
   (`lib/rag/outline.ts`'s `chapterMarkerIn`). Real PDFs typically have a
