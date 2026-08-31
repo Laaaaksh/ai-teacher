@@ -84,13 +84,25 @@ For broad topics: an ordered list of steps (`steps_json`, a
 "you are on step 3 of 8" and unlock the next step as the learner completes
 one. See `lib/db/accessors/learningPaths.ts`.
 
+### `video_jobs`
+One row per teaching-video render of a `lesson_plan` (migration 2). Holds the
+persona the lesson is narrated by, a `status`
+(`queued`/`narrating`/`rendering`/`muxing`/`completed`/`failed`), a live
+`progress_percent`/`stage_detail` the render pipeline writes as it works (so
+polling returns honest progress, not a spinner), and either an `output_path`
+or an `error_message`. Because the runner is in-process rather than a durable
+worker queue, a process restart mid-render leaves the row at its last written
+progress rather than silently "completed" — see Known limitations in
+`docs/VIDEO.md`. See `lib/db/accessors/videoJobs.ts`.
+
 ## Foreign keys and cascades
 
 `PRAGMA foreign_keys = ON` is set on every connection. Deleting a
 `learner_profile` cascades to their sessions, plans, progress and learning
-paths; deleting a `document` cascades to its chunks and sets
-`source_document_id` to `NULL` on any session/plan that referenced it
-(the lesson itself is not deleted just because its source material was).
+paths (and, through `lesson_plans`, to their `video_jobs`); deleting a
+`document` cascades to its chunks and sets `source_document_id` to `NULL` on
+any session/plan that referenced it (the lesson itself is not deleted just
+because its source material was).
 
 One deliberate exception: `scenes.question_id` has no `REFERENCES` clause,
 because `questions.scene_id` already references `scenes(id)` and a reciprocal
@@ -110,4 +122,5 @@ question id themselves, since SQLite will accept a stale one silently.
 
 None of this requires a schema change for the features described in
 docs/ARCHITECTURE.md; if a later slice needs a new column, add a migration
-rather than editing an existing table's `CREATE TABLE` in place.
+rather than editing an existing table's `CREATE TABLE` in place — as the
+video-generation slice did for `video_jobs` (migration 2).

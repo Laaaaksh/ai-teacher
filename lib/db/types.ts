@@ -164,3 +164,18 @@ export interface LearningPathRow {
   createdAt: string;
   updatedAt: string;
 }
+
+export type VideoJobStatus = "queued" | "narrating" | "rendering" | "muxing" | "completed" | "failed";
+
+export interface VideoJobRow {
+  id: string;
+  lessonPlanId: string;
+  personaId: string;
+  status: VideoJobStatus;
+  progressPercent: number;
+  stageDetail: string | null;
+  outputPath: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -38,6 +38,7 @@ next-env.d.ts
 # app data
 data/uploads/
 data/generated/
+data/video-cache/
 data/*.sqlite
 data/*.sqlite-journal
 data/*.sqlite-wal
